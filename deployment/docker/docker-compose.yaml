@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: timeseries-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  training:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.training
+    container_name: timeseries-training
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+    volumes:
+      - ../../data:/app/data
+      - ../../models:/app/models
+      - ../../logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.inference
+    container_name: timeseries-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONPATH=/app
+    volumes:
+      - ../../models:/app/models:ro
+      - ../../configs:/app/configs:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: timeseries-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  mlflow:
+    image: python:3.10-slim
+    container_name: timeseries-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/app/mlruns
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:///app/mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/app/mlruns
+    command: >
+      bash -c "pip install mlflow[extras] && 
+               mlflow server 
+               --backend-store-uri sqlite:///app/mlflow.db 
+               --default-artifact-root /app/mlruns 
+               --host 0.0.0.0 
+               --port 5000"
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+  mlflow_data:
+    driver: local
+
+networks:
+  default:
+    name: timeseries-network

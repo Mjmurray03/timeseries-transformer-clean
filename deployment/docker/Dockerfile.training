@@ -1,0 +1,44 @@
+# Training Image - Full ML stack with CUDA support
+FROM nvidia/cuda:12.4-cudnn8-runtime-ubuntu22.04 AS base
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV CUDA_VISIBLE_DEVICES=0
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    git \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt pyproject.toml ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY configs/ ./configs/
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/models /app/logs
+
+# Setup permissions
+RUN chmod +x scripts/*.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import torch; print('CUDA:', torch.cuda.is_available())" || exit 1
+
+# Default command
+CMD ["python", "-m", "src.training.train"]

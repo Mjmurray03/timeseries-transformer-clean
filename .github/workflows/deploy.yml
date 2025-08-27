@@ -369,7 +369,7 @@ jobs:
       env:
         OWNER: ${{ github.repository_owner }}
         PACKAGE: timeseries-transformer
-        TOKEN: ${{ secrets.PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
+        TOKEN: ${{ secrets.tstapikey || secrets.GITHUB_TOKEN }}
       run: |
         set -euo pipefail
         

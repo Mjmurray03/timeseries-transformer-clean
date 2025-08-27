@@ -247,11 +247,12 @@ class GPUTrainer:
     
     def _build_warmup_scheduler(self) -> Optional[LinearWarmupScheduler]:
         """Build warmup scheduler."""
-        if self.config.warmup_steps > 0:
+        warmup = getattr(self.config, "warmup_steps", 0)
+        if warmup > 0:
             total_steps = self.config.num_epochs * self.config.steps_per_epoch
             return LinearWarmupScheduler(
                 self.optimizer,
-                warmup_steps=self.config.warmup_steps,
+                warmup_steps=warmup,
                 total_steps=total_steps,
                 min_lr=self.config.scheduler.min_lr
             )

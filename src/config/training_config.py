@@ -33,11 +33,42 @@ class SchedulerConfig:
 @dataclass
 class LossConfig:
     """Loss function configuration."""
-    price_loss_weight: float = 1.0
-    direction_loss_weight: float = 0.5
-    volatility_loss_weight: float = 0.3
-    quantile_loss_weight: float = 0.2
+    use_composite_loss: bool = False  # Disabled for basic price prediction
+    price_weight: float = 0.5
+    direction_weight: float = 0.3
+    volatility_weight: float = 0.1
+    quantile_weight: float = 0.1
+    
+    # Legacy fields for backwards compatibility
+    price_loss_weight: float = field(init=False)
+    direction_loss_weight: float = field(init=False)
+    volatility_loss_weight: float = field(init=False)
+    quantile_loss_weight: float = field(init=False)
+    
     quantiles: List[float] = field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 0.9])
+    
+    def __post_init__(self):
+        """Set legacy field values for backwards compatibility."""
+        self.price_loss_weight = self.price_weight
+        self.direction_loss_weight = self.direction_weight
+        self.volatility_loss_weight = self.volatility_weight
+        self.quantile_loss_weight = self.quantile_weight
+
+
+@dataclass
+class ModelConfig:
+    """Model architecture configuration."""
+    input_dim: int = 30  # Number of input features
+    hidden_dim: int = 256  # Model dimension
+    num_heads: int = 8  # Number of attention heads
+    num_layers: int = 4  # Number of transformer layers
+    dropout: float = 0.1  # Dropout probability
+    max_seq_length: int = 60  # Maximum sequence length
+    output_dim: int = 5  # Output dimension (forecast horizon)
+    forecast_horizon: int = 5  # Number of future time steps
+    quantiles: List[float] = field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 0.9])
+    use_attention_pooling: bool = True  # Use attention pooling
+    model_version: str = "1.0"  # Model version for tracking
 
 
 @dataclass
@@ -77,6 +108,7 @@ class TrainingConfig:
     val_metric: str = "loss"
     
     # Component configurations
+    model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     loss: LossConfig = field(default_factory=LossConfig)
@@ -85,6 +117,11 @@ class TrainingConfig:
     train_split: float = 0.7
     val_split: float = 0.15
     test_split: float = 0.15
+    tickers: List[str] = field(default_factory=lambda: ['AAPL'])
+    
+    # Training steps (calculated dynamically)
+    steps_per_epoch: Optional[int] = None
+    warmup_steps: int = 0
     
     # Reproducibility
     seed: int = 42
@@ -190,6 +227,7 @@ class TrainingConfig:
         
         # Initialize configuration dictionaries
         config_params = {}
+        model_params = {}
         optimizer_params = {}
         scheduler_params = {}
         loss_params = {}
@@ -251,9 +289,33 @@ class TrainingConfig:
             'test_split': ('config', 'test_split', float, lambda x: cls._validate_split(x, 'test_split')),
             'test-split': ('config', 'test_split', float, lambda x: cls._validate_split(x, 'test_split')),
             
+            # Data parameters
+            'tickers': ('config', 'tickers', list, None),
+            'warmup-steps': ('config', 'warmup_steps', int, lambda x: cls._validate_non_negative_int(x, 'warmup_steps')),
+            'warmup_steps': ('config', 'warmup_steps', int, lambda x: cls._validate_non_negative_int(x, 'warmup_steps')),
+            
             # Reproducibility
             'seed': ('config', 'seed', int, lambda x: cls._validate_non_negative_int(x, 'seed')),
             'deterministic': ('config', 'deterministic', bool, None),
+            
+            # Model architecture parameters
+            'input-dim': ('model', 'input_dim', int, lambda x: cls._validate_positive_int(x, 'input_dim')),
+            'input_dim': ('model', 'input_dim', int, lambda x: cls._validate_positive_int(x, 'input_dim')),
+            'hidden-dim': ('model', 'hidden_dim', int, lambda x: cls._validate_positive_int(x, 'hidden_dim')),
+            'hidden_dim': ('model', 'hidden_dim', int, lambda x: cls._validate_positive_int(x, 'hidden_dim')),
+            'num-heads': ('model', 'num_heads', int, lambda x: cls._validate_positive_int(x, 'num_heads')),
+            'num_heads': ('model', 'num_heads', int, lambda x: cls._validate_positive_int(x, 'num_heads')),
+            'num-layers': ('model', 'num_layers', int, lambda x: cls._validate_positive_int(x, 'num_layers')),
+            'num_layers': ('model', 'num_layers', int, lambda x: cls._validate_positive_int(x, 'num_layers')),
+            'dropout': ('model', 'dropout', float, lambda x: cls._validate_non_negative_float(x, 'dropout')),
+            'max-seq-length': ('model', 'max_seq_length', int, lambda x: cls._validate_positive_int(x, 'max_seq_length')),
+            'max_seq_length': ('model', 'max_seq_length', int, lambda x: cls._validate_positive_int(x, 'max_seq_length')),
+            'output-dim': ('model', 'output_dim', int, lambda x: cls._validate_positive_int(x, 'output_dim')),
+            'output_dim': ('model', 'output_dim', int, lambda x: cls._validate_positive_int(x, 'output_dim')),
+            'forecast-horizon': ('model', 'forecast_horizon', int, lambda x: cls._validate_positive_int(x, 'forecast_horizon')),
+            'forecast_horizon': ('model', 'forecast_horizon', int, lambda x: cls._validate_positive_int(x, 'forecast_horizon')),
+            'use-attention-pooling': ('model', 'use_attention_pooling', bool, None),
+            'use_attention_pooling': ('model', 'use_attention_pooling', bool, None),
             
             # Optimizer parameters
             'learning_rate': ('optimizer', 'learning_rate', float, lambda x: cls._validate_positive_float(x, 'learning_rate')),
@@ -294,6 +356,15 @@ class TrainingConfig:
                             converted_value = arg_value.lower() in ('true', '1', 'yes', 'on')
                         else:
                             converted_value = bool(arg_value)
+                    elif type_converter == list:
+                        # Handle list conversion
+                        if isinstance(arg_value, str):
+                            # Split comma-separated string
+                            converted_value = [s.strip() for s in arg_value.split(',')]
+                        elif isinstance(arg_value, list):
+                            converted_value = arg_value
+                        else:
+                            converted_value = [arg_value]
                     else:
                         converted_value = type_converter(arg_value)
                     
@@ -304,6 +375,8 @@ class TrainingConfig:
                     # Store in appropriate section
                     if section == 'config':
                         config_params[param_name] = converted_value
+                    elif section == 'model':
+                        model_params[param_name] = converted_value
                     elif section == 'optimizer':
                         optimizer_params[param_name] = converted_value
                     elif section == 'scheduler':
@@ -315,6 +388,7 @@ class TrainingConfig:
                     raise ValueError(f"Invalid value for parameter '{arg_name}': {arg_value}. Error: {e}")
         
         # Create nested configuration objects
+        model_config = ModelConfig(**model_params)
         optimizer_config = OptimizerConfig(**optimizer_params)
         scheduler_config = SchedulerConfig(**scheduler_params)
         loss_config = LossConfig(**loss_params)
@@ -322,6 +396,7 @@ class TrainingConfig:
         # Create and return main configuration
         try:
             return cls(
+                model=model_config,
                 optimizer=optimizer_config,
                 scheduler=scheduler_config,
                 loss=loss_config,

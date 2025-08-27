@@ -35,6 +35,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 import wandb
 
@@ -45,7 +46,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.config.training_config import TrainingConfig
 from src.models.timeseries_transformer import TimeSeriesTransformer
 from src.models.losses.composite_loss import CompositeLoss
-from src.data.datasets.stock_dataset import StockDataset
+from src.data.datasets.stock_dataset import StockSequenceDataset
 from src.training.experiment_tracker import ExperimentTracker
 from src.training.callbacks.early_stopping import EarlyStopping
 from src.training.callbacks.model_checkpoint import ModelCheckpoint
@@ -278,7 +279,7 @@ class GPUTrainer:
             project=self.config.project_name,
             name=self.config.experiment_name,
             config=self.config.to_dict(),
-            tags=["gpu_training", f"v{self.config.model_version}"],
+            tags=["gpu_training", f"v{self.config.model.model_version}"],
             resume="allow"
         )
         
@@ -921,32 +922,81 @@ def setup_distributed_training() -> Tuple[int, int]:
 
 
 def create_data_loaders(config: TrainingConfig, rank: int, world_size: int) -> Tuple[DataLoader, DataLoader, Optional[DataLoader]]:
-    """Create data loaders with distributed sampling."""
-    # This is a placeholder - actual implementation would load real datasets
-    # For now, we'll create dummy datasets to show the structure
+    """Create data loaders with real stock data and distributed sampling."""
+    from pathlib import Path
+    import pandas as pd
+    from src.data.processors.feature_engineering import FeatureEngineer
+    from src.data.datasets.stock_dataset import StockSequenceDataset
     
-    from torch.utils.data import TensorDataset
-    
-    # Create dummy data
+    # Configuration
     batch_size = config.batch_size
-    seq_len = config.model.max_seq_length
-    input_dim = config.model.input_dim
-    output_dim = config.model.output_dim
+    window_size = config.model.max_seq_length
+    forecast_horizon = config.model.forecast_horizon
     
-    # Training data
-    train_inputs = torch.randn(1000, seq_len, input_dim)
-    train_targets = torch.randn(1000, output_dim)
-    train_dataset = TensorDataset(train_inputs, train_targets)
+    # Load stock data from parquet files
+    data_dir = Path("data/raw")
+    all_data = []
     
-    # Validation data
-    val_inputs = torch.randn(200, seq_len, input_dim)
-    val_targets = torch.randn(200, output_dim)
-    val_dataset = TensorDataset(val_inputs, val_targets)
+    # Default to AAPL if no tickers specified
+    tickers = getattr(config, 'tickers', ['AAPL'])
+    if isinstance(tickers, str):
+        tickers = [tickers]
     
-    # Test data
-    test_inputs = torch.randn(200, seq_len, input_dim)
-    test_targets = torch.randn(200, output_dim)
-    test_dataset = TensorDataset(test_inputs, test_targets)
+    logger.info(f"Loading data for tickers: {tickers}")
+    
+    for ticker in tickers:
+        ticker_dir = data_dir / ticker
+        if not ticker_dir.exists():
+            logger.warning(f"Data directory not found for {ticker}: {ticker_dir}")
+            continue
+            
+        # Find the most recent parquet file for this ticker
+        parquet_files = list(ticker_dir.glob("*.parquet"))
+        if not parquet_files:
+            logger.warning(f"No parquet files found for {ticker}")
+            continue
+            
+        # Use the most recent file (by modification time)
+        latest_file = max(parquet_files, key=lambda p: p.stat().st_mtime)
+        logger.info(f"Loading {ticker} data from: {latest_file}")
+        
+        try:
+            ticker_data = pd.read_parquet(latest_file)
+            ticker_data['Ticker'] = ticker  # Ensure ticker column exists
+            all_data.append(ticker_data)
+        except Exception as e:
+            logger.error(f"Failed to load data for {ticker}: {e}")
+            continue
+    
+    if not all_data:
+        raise FileNotFoundError("No valid stock data files found. Please ensure data exists in data/raw/<TICKER>/*.parquet")
+    
+    # Combine all ticker data
+    combined_data = pd.concat(all_data, ignore_index=True)
+    logger.info(f"Combined data shape: {combined_data.shape}")
+    
+    # Apply feature engineering
+    feature_engineer = FeatureEngineer()
+    feature_data = feature_engineer.engineer_features(combined_data)
+    logger.info(f"Feature-engineered data shape: {feature_data.shape}")
+    
+    # Create sequences from the feature data
+    sequences, targets = create_sequences(
+        feature_data, 
+        window_size=window_size,
+        forecast_horizon=forecast_horizon
+    )
+    logger.info(f"Created {len(sequences)} sequences")
+    
+    # Split data into train/val/test
+    train_sequences, val_sequences, test_sequences, train_targets, val_targets, test_targets = split_sequences(
+        sequences, targets, config.train_split, config.val_split, config.test_split
+    )
+    
+    # Create datasets
+    train_dataset = StockSequenceDataset(train_sequences, train_targets)
+    val_dataset = StockSequenceDataset(val_sequences, val_targets) 
+    test_dataset = StockSequenceDataset(test_sequences, test_targets)
     
     # Create samplers
     if world_size > 1:
@@ -960,10 +1010,12 @@ def create_data_loaders(config: TrainingConfig, rank: int, world_size: int) -> T
     
     # Create data loaders
     def collate_fn(batch):
-        inputs, targets = zip(*batch)
+        # batch is a list of dictionaries with 'inputs' and 'targets' keys
+        inputs = torch.stack([item['inputs'] for item in batch])
+        targets = torch.stack([item['targets'] for item in batch])
         return {
-            'inputs': torch.stack(inputs),
-            'targets': torch.stack(targets)
+            'inputs': inputs,
+            'targets': targets
         }
     
     train_loader = DataLoader(
@@ -971,9 +1023,9 @@ def create_data_loaders(config: TrainingConfig, rank: int, world_size: int) -> T
         batch_size=batch_size,
         sampler=train_sampler,
         shuffle=(train_sampler is None),
-        num_workers=4,
+        num_workers=0,  # Set to 0 for Windows compatibility
         pin_memory=True,
-        persistent_workers=True,
+        persistent_workers=False,  # Must be False when num_workers=0
         collate_fn=collate_fn
     )
     
@@ -982,9 +1034,9 @@ def create_data_loaders(config: TrainingConfig, rank: int, world_size: int) -> T
         batch_size=batch_size,
         sampler=val_sampler,
         shuffle=False,
-        num_workers=4,
+        num_workers=0,  # Set to 0 for Windows compatibility
         pin_memory=True,
-        persistent_workers=True,
+        persistent_workers=False,  # Must be False when num_workers=0
         collate_fn=collate_fn
     )
     
@@ -993,13 +1045,92 @@ def create_data_loaders(config: TrainingConfig, rank: int, world_size: int) -> T
         batch_size=batch_size,
         sampler=test_sampler,
         shuffle=False,
-        num_workers=4,
+        num_workers=0,  # Set to 0 for Windows compatibility
         pin_memory=True,
-        persistent_workers=True,
+        persistent_workers=False,  # Must be False when num_workers=0
         collate_fn=collate_fn
     )
     
     return train_loader, val_loader, test_loader
+
+
+def create_sequences(data: pd.DataFrame, window_size: int, forecast_horizon: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Create sequences from time-series data.
+    
+    Args:
+        data: Feature-engineered DataFrame
+        window_size: Size of input window
+        forecast_horizon: Number of steps to forecast
+        
+    Returns:
+        Tuple of (sequences, targets) arrays
+    """
+    # Remove non-numeric columns and handle missing values
+    numeric_data = data.select_dtypes(include=[np.number])
+    
+    # Drop rows with any NaN values
+    clean_data = numeric_data.dropna()
+    
+    if len(clean_data) < window_size + forecast_horizon:
+        raise ValueError(f"Not enough data points: {len(clean_data)} < {window_size + forecast_horizon}")
+    
+    sequences = []
+    targets = []
+    
+    for i in range(len(clean_data) - window_size - forecast_horizon + 1):
+        # Input sequence
+        seq = clean_data.iloc[i:i + window_size].values
+        sequences.append(seq)
+        
+        # Target sequence (Close price for forecast horizon)
+        if 'Close' in clean_data.columns:
+            target = clean_data['Close'].iloc[i + window_size:i + window_size + forecast_horizon].values
+        else:
+            # Fallback to first column if Close not found
+            target = clean_data.iloc[i + window_size:i + window_size + forecast_horizon, 0].values
+        targets.append(target)
+    
+    return np.array(sequences), np.array(targets)
+
+
+def split_sequences(
+    sequences: np.ndarray, 
+    targets: np.ndarray, 
+    train_split: float, 
+    val_split: float, 
+    test_split: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Split sequences into train/val/test sets.
+    
+    Args:
+        sequences: Input sequences
+        targets: Target sequences
+        train_split: Fraction for training
+        val_split: Fraction for validation
+        test_split: Fraction for testing
+        
+    Returns:
+        Tuple of (train_seq, val_seq, test_seq, train_targets, val_targets, test_targets)
+    """
+    n_samples = len(sequences)
+    
+    # Calculate split indices
+    train_idx = int(n_samples * train_split)
+    val_idx = int(n_samples * (train_split + val_split))
+    
+    # Split sequences
+    train_sequences = sequences[:train_idx]
+    val_sequences = sequences[train_idx:val_idx]
+    test_sequences = sequences[val_idx:]
+    
+    # Split targets
+    train_targets = targets[:train_idx]
+    val_targets = targets[train_idx:val_idx] 
+    test_targets = targets[val_idx:]
+    
+    return train_sequences, val_sequences, test_sequences, train_targets, val_targets, test_targets
 
 
 def parse_arguments() -> argparse.Namespace:

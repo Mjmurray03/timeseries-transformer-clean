@@ -1,0 +1,226 @@
+{
+  "timestamp": "2025-08-27T07:04:18.349645",
+  "validation_success": true,
+  "coverage_validation": {
+    "components_tested": [
+      "data loading",
+      "feature engineering",
+      "dataset creation",
+      "model initialization",
+      "training configuration",
+      "training orchestrator",
+      "verification"
+    ],
+    "missing_components": [],
+    "assertions_verified": [
+      "raise ValueError",
+      "raise FileNotFoundError",
+      "shape",
+      "dtype",
+      "isfinite",
+      "validate"
+    ],
+    "passed": true,
+    "coverage_score": 0.9571428571428571
+  },
+  "failure_detection": {
+    "broken_components_tested": [
+      "missing_parquet_file",
+      "corrupted_data",
+      "feature_engineering_failure",
+      "insufficient_data_for_sequences",
+      "model_invalid_params",
+      "training_config_invalid"
+    ],
+    "failures_detected": [
+      "missing_parquet_file",
+      "corrupted_data",
+      "feature_engineering_failure",
+      "insufficient_data_for_sequences",
+      "model_invalid_params",
+      "training_config_invalid"
+    ],
+    "failures_missed": [],
+    "passed": true,
+    "detection_rate": 1.0
+  },
+  "performance_validation": {
+    "execution_times": [
+      12.241120100021362,
+      11.492171049118042,
+      14.133872509002686
+    ],
+    "memory_usage": [
+      0.09375,
+      0.01171875,
+      0.01171875
+    ],
+    "performance_metrics": {
+      "average_execution_time": 12.622387886047363,
+      "max_execution_time": 14.133872509002686,
+      "average_memory_usage": 0.0390625,
+      "max_memory_usage": 0.09375,
+      "execution_time_std": 1.1116565699546603,
+      "memory_usage_std": 0.03866990209613932
+    },
+    "passed": true,
+    "requirements_met": {
+      "execution_time_acceptable": true,
+      "memory_usage_acceptable": true,
+      "consistency_acceptable": "True"
+    }
+  },
+  "reproducibility_check": {
+    "test_runs": [
+      {
+        "overall_success": true,
+        "total_duration": 4.792800426483154,
+        "stages_success": {
+          "1_data_loading": true,
+          "2_feature_engineering": true,
+          "3_dataset_creation": true,
+          "4_model_initialization": true,
+          "5_training_configuration": true,
+          "6_training_orchestrator": true,
+          "7_verification": true
+        },
+        "data_shape": [
+          1276,
+          6
+        ],
+        "feature_count": 31,
+        "sequence_count": 1013,
+        "model_params": 864493
+      },
+      {
+        "overall_success": true,
+        "total_duration": 1.8676958084106445,
+        "stages_success": {
+          "1_data_loading": true,
+          "2_feature_engineering": true,
+          "3_dataset_creation": true,
+          "4_model_initialization": true,
+          "5_training_configuration": true,
+          "6_training_orchestrator": true,
+          "7_verification": true
+        },
+        "data_shape": [
+          1276,
+          6
+        ],
+        "feature_count": 31,
+        "sequence_count": 1013,
+        "model_params": 864493
+      },
+      {
+        "overall_success": true,
+        "total_duration": 1.8364927768707275,
+        "stages_success": {
+          "1_data_loading": true,
+          "2_feature_engineering": true,
+          "3_dataset_creation": true,
+          "4_model_initialization": true,
+          "5_training_configuration": true,
+          "6_training_orchestrator": true,
+          "7_verification": true
+        },
+        "data_shape": [
+          1276,
+          6
+        ],
+        "feature_count": 31,
+        "sequence_count": 1013,
+        "model_params": 864493
+      }
+    ],
+    "consistency_metrics": {
+      "data_shape": {
+        "consistent": true,
+        "values": [
+          [
+            1276,
+            6
+          ],
+          [
+            1276,
+            6
+          ],
+          [
+            1276,
+            6
+          ]
+        ]
+      },
+      "feature_count": {
+        "consistent": true,
+        "values": [
+          31,
+          31,
+          31
+        ]
+      },
+      "sequence_count": {
+        "consistent": true,
+        "values": [
+          1013,
+          1013,
+          1013
+        ]
+      },
+      "model_params": {
+        "consistent": true,
+        "values": [
+          864493,
+          864493,
+          864493
+        ]
+      },
+      "timing_variation": {
+        "durations": [
+          4.792800426483154,
+          1.8676958084106445,
+          1.8364927768707275
+        ],
+        "std_deviation": 1.386320693017767,
+        "coefficient_of_variation": 0.4894630407659702,
+        "acceptable": "True"
+      }
+    },
+    "seed_handling": {},
+    "passed": "True"
+  },
+  "report_validation": {
+    "required_fields_present": [
+      "timestamp",
+      "overall_success",
+      "total_duration_seconds",
+      "stages",
+      "errors",
+      "final_metrics"
+    ],
+    "missing_fields": [],
+    "data_quality": {
+      "durations_positive": true,
+      "metrics_present": true,
+      "no_null_values": true
+    },
+    "human_readability": {
+      "has_timestamp": true,
+      "has_error_messages": true,
+      "has_final_summary": true,
+      "json_valid": true
+    },
+    "passed": true,
+    "stages_present": [
+      "1_data_loading",
+      "2_feature_engineering",
+      "3_dataset_creation",
+      "4_model_initialization",
+      "5_training_configuration",
+      "6_training_orchestrator",
+      "7_verification"
+    ]
+  },
+  "errors": [],
+  "total_validation_time": 50.164602279663086
+}

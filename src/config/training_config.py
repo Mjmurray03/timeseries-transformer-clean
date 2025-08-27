@@ -1,9 +1,10 @@
 """Training configuration schema and validation."""
 
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 import yaml
+import argparse
 from pydantic import BaseModel, validator, Field
 
 
@@ -149,6 +150,229 @@ class TrainingConfig:
             **config_dict
         )
     
+    @classmethod
+    def from_args(cls, args: Union[argparse.Namespace, Dict[str, Any]]) -> "TrainingConfig":
+        """
+        Create configuration from command-line arguments.
+        
+        This method maps command-line argument names to TrainingConfig parameters,
+        handles missing optional parameters with defaults, validates parameter types
+        and ranges, and returns a properly initialized TrainingConfig instance.
+        
+        Args:
+            args: argparse.Namespace from command-line parsing or dictionary
+            
+        Returns:
+            TrainingConfig: Properly initialized configuration instance
+            
+        Raises:
+            ValueError: If required parameters are missing or invalid
+            TypeError: If parameter types are incorrect
+            
+        Parameter Mapping:
+            Command-line argument -> TrainingConfig parameter
+            --epochs -> num_epochs
+            --batch-size -> batch_size
+            --learning-rate -> optimizer.learning_rate
+            --device -> device
+            --experiment-name -> experiment_name
+            --checkpoint-dir -> checkpoint_dir
+            --seed -> seed
+            (and many more - see implementation for complete mapping)
+        """
+        # Convert argparse.Namespace to dictionary if needed
+        if isinstance(args, argparse.Namespace):
+            args_dict = vars(args)
+        elif isinstance(args, dict):
+            args_dict = args.copy()
+        else:
+            raise TypeError(f"Expected argparse.Namespace or dict, got {type(args)}")
+        
+        # Initialize configuration dictionaries
+        config_params = {}
+        optimizer_params = {}
+        scheduler_params = {}
+        loss_params = {}
+        
+        # Define parameter mapping: command-line arg -> (config_section, param_name, type_converter, validator_func)
+        param_mapping = {
+            # Basic training parameters
+            'epochs': ('config', 'num_epochs', int, lambda x: cls._validate_positive_int(x, 'num_epochs')),
+            'num_epochs': ('config', 'num_epochs', int, lambda x: cls._validate_positive_int(x, 'num_epochs')),
+            'batch_size': ('config', 'batch_size', int, lambda x: cls._validate_positive_int(x, 'batch_size')),
+            'batch-size': ('config', 'batch_size', int, lambda x: cls._validate_positive_int(x, 'batch_size')),
+            'gradient_accumulation_steps': ('config', 'gradient_accumulation_steps', int, lambda x: cls._validate_positive_int(x, 'gradient_accumulation_steps')),
+            'gradient-accumulation-steps': ('config', 'gradient_accumulation_steps', int, lambda x: cls._validate_positive_int(x, 'gradient_accumulation_steps')),
+            'gradient_clip': ('config', 'gradient_clip', float, lambda x: cls._validate_positive_float(x, 'gradient_clip')),
+            'gradient-clip': ('config', 'gradient_clip', float, lambda x: cls._validate_positive_float(x, 'gradient_clip')),
+            
+            # Mixed precision and device
+            'use_amp': ('config', 'use_amp', bool, None),
+            'use-amp': ('config', 'use_amp', bool, None),
+            'device': ('config', 'device', str, lambda x: cls._validate_device(x)),
+            'num_workers': ('config', 'num_workers', int, lambda x: cls._validate_non_negative_int(x, 'num_workers')),
+            'num-workers': ('config', 'num_workers', int, lambda x: cls._validate_non_negative_int(x, 'num_workers')),
+            'pin_memory': ('config', 'pin_memory', bool, None),
+            'pin-memory': ('config', 'pin_memory', bool, None),
+            
+            # Checkpointing
+            'save_every': ('config', 'save_every', int, lambda x: cls._validate_positive_int(x, 'save_every')),
+            'save-every': ('config', 'save_every', int, lambda x: cls._validate_positive_int(x, 'save_every')),
+            'checkpoint_dir': ('config', 'checkpoint_dir', str, None),
+            'checkpoint-dir': ('config', 'checkpoint_dir', str, None),
+            'save_best_only': ('config', 'save_best_only', bool, None),
+            'save-best-only': ('config', 'save_best_only', bool, None),
+            
+            # Early stopping
+            'early_stopping_patience': ('config', 'early_stopping_patience', int, lambda x: cls._validate_positive_int(x, 'early_stopping_patience')),
+            'early-stopping-patience': ('config', 'early_stopping_patience', int, lambda x: cls._validate_positive_int(x, 'early_stopping_patience')),
+            'early_stopping_min_delta': ('config', 'early_stopping_min_delta', float, lambda x: cls._validate_non_negative_float(x, 'early_stopping_min_delta')),
+            'early-stopping-min-delta': ('config', 'early_stopping_min_delta', float, lambda x: cls._validate_non_negative_float(x, 'early_stopping_min_delta')),
+            
+            # Experiment tracking
+            'experiment_name': ('config', 'experiment_name', str, None),
+            'experiment-name': ('config', 'experiment_name', str, None),
+            'project_name': ('config', 'project_name', str, None),
+            'project-name': ('config', 'project_name', str, None),
+            'log_every': ('config', 'log_every', int, lambda x: cls._validate_positive_int(x, 'log_every')),
+            'log-every': ('config', 'log_every', int, lambda x: cls._validate_positive_int(x, 'log_every')),
+            
+            # Validation
+            'val_every': ('config', 'val_every', int, lambda x: cls._validate_positive_int(x, 'val_every')),
+            'val-every': ('config', 'val_every', int, lambda x: cls._validate_positive_int(x, 'val_every')),
+            'val_metric': ('config', 'val_metric', str, None),
+            'val-metric': ('config', 'val_metric', str, None),
+            
+            # Data splits
+            'train_split': ('config', 'train_split', float, lambda x: cls._validate_split(x, 'train_split')),
+            'train-split': ('config', 'train_split', float, lambda x: cls._validate_split(x, 'train_split')),
+            'val_split': ('config', 'val_split', float, lambda x: cls._validate_split(x, 'val_split')),
+            'val-split': ('config', 'val_split', float, lambda x: cls._validate_split(x, 'val_split')),
+            'test_split': ('config', 'test_split', float, lambda x: cls._validate_split(x, 'test_split')),
+            'test-split': ('config', 'test_split', float, lambda x: cls._validate_split(x, 'test_split')),
+            
+            # Reproducibility
+            'seed': ('config', 'seed', int, lambda x: cls._validate_non_negative_int(x, 'seed')),
+            'deterministic': ('config', 'deterministic', bool, None),
+            
+            # Optimizer parameters
+            'learning_rate': ('optimizer', 'learning_rate', float, lambda x: cls._validate_positive_float(x, 'learning_rate')),
+            'learning-rate': ('optimizer', 'learning_rate', float, lambda x: cls._validate_positive_float(x, 'learning_rate')),
+            'lr': ('optimizer', 'learning_rate', float, lambda x: cls._validate_positive_float(x, 'learning_rate')),
+            'weight_decay': ('optimizer', 'weight_decay', float, lambda x: cls._validate_non_negative_float(x, 'weight_decay')),
+            'weight-decay': ('optimizer', 'weight_decay', float, lambda x: cls._validate_non_negative_float(x, 'weight_decay')),
+            'optimizer_name': ('optimizer', 'name', str, None),
+            'optimizer-name': ('optimizer', 'name', str, None),
+            'amsgrad': ('optimizer', 'amsgrad', bool, None),
+            
+            # Scheduler parameters
+            'scheduler_name': ('scheduler', 'name', str, None),
+            'scheduler-name': ('scheduler', 'name', str, None),
+            'warmup_steps': ('scheduler', 'warmup_steps', int, lambda x: cls._validate_non_negative_int(x, 'warmup_steps')),
+            'warmup-steps': ('scheduler', 'warmup_steps', int, lambda x: cls._validate_non_negative_int(x, 'warmup_steps')),
+            'max_steps': ('scheduler', 'max_steps', int, lambda x: cls._validate_positive_int(x, 'max_steps')),
+            'max-steps': ('scheduler', 'max_steps', int, lambda x: cls._validate_positive_int(x, 'max_steps')),
+            'min_lr': ('scheduler', 'min_lr', float, lambda x: cls._validate_non_negative_float(x, 'min_lr')),
+            'min-lr': ('scheduler', 'min_lr', float, lambda x: cls._validate_non_negative_float(x, 'min_lr')),
+            'patience': ('scheduler', 'patience', int, lambda x: cls._validate_positive_int(x, 'patience')),
+            'factor': ('scheduler', 'factor', float, lambda x: cls._validate_positive_float(x, 'factor')),
+        }
+        
+        # Process each argument
+        for arg_name, arg_value in args_dict.items():
+            if arg_value is None:
+                continue  # Skip None values (not provided)
+            
+            if arg_name in param_mapping:
+                section, param_name, type_converter, validator = param_mapping[arg_name]
+                
+                try:
+                    # Convert type
+                    if type_converter == bool:
+                        # Handle boolean conversion from string
+                        if isinstance(arg_value, str):
+                            converted_value = arg_value.lower() in ('true', '1', 'yes', 'on')
+                        else:
+                            converted_value = bool(arg_value)
+                    else:
+                        converted_value = type_converter(arg_value)
+                    
+                    # Validate if validator provided
+                    if validator:
+                        converted_value = validator(converted_value)
+                    
+                    # Store in appropriate section
+                    if section == 'config':
+                        config_params[param_name] = converted_value
+                    elif section == 'optimizer':
+                        optimizer_params[param_name] = converted_value
+                    elif section == 'scheduler':
+                        scheduler_params[param_name] = converted_value
+                    elif section == 'loss':
+                        loss_params[param_name] = converted_value
+                        
+                except (ValueError, TypeError) as e:
+                    raise ValueError(f"Invalid value for parameter '{arg_name}': {arg_value}. Error: {e}")
+        
+        # Create nested configuration objects
+        optimizer_config = OptimizerConfig(**optimizer_params)
+        scheduler_config = SchedulerConfig(**scheduler_params)
+        loss_config = LossConfig(**loss_params)
+        
+        # Create and return main configuration
+        try:
+            return cls(
+                optimizer=optimizer_config,
+                scheduler=scheduler_config,
+                loss=loss_config,
+                **config_params
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to create TrainingConfig: {e}")
+    
+    @staticmethod
+    def _validate_positive_int(value: int, param_name: str) -> int:
+        """Validate that an integer parameter is positive."""
+        if value <= 0:
+            raise ValueError(f"{param_name} must be positive, got {value}")
+        return value
+    
+    @staticmethod
+    def _validate_non_negative_int(value: int, param_name: str) -> int:
+        """Validate that an integer parameter is non-negative."""
+        if value < 0:
+            raise ValueError(f"{param_name} must be non-negative, got {value}")
+        return value
+    
+    @staticmethod
+    def _validate_positive_float(value: float, param_name: str) -> float:
+        """Validate that a float parameter is positive."""
+        if value <= 0:
+            raise ValueError(f"{param_name} must be positive, got {value}")
+        return value
+    
+    @staticmethod
+    def _validate_non_negative_float(value: float, param_name: str) -> float:
+        """Validate that a float parameter is non-negative."""
+        if value < 0:
+            raise ValueError(f"{param_name} must be non-negative, got {value}")
+        return value
+    
+    @staticmethod
+    def _validate_split(value: float, param_name: str) -> float:
+        """Validate that a split parameter is between 0 and 1."""
+        if not (0 < value < 1):
+            raise ValueError(f"{param_name} must be between 0 and 1, got {value}")
+        return value
+    
+    @staticmethod
+    def _validate_device(value: str) -> str:
+        """Validate that device is supported."""
+        valid_devices = ["cpu", "cuda", "mps"]
+        if value not in valid_devices:
+            raise ValueError(f"device must be one of {valid_devices}, got '{value}'")
+        return value
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
         config_dict = {}
@@ -232,3 +456,121 @@ def create_production_config() -> TrainingConfig:
         early_stopping_patience=20,
         experiment_name="production_training"
     )
+
+
+def get_parameter_mapping_documentation() -> str:
+    """
+    Get comprehensive documentation of parameter mappings for from_args method.
+    
+    Returns:
+        String containing detailed parameter mapping documentation
+    """
+    return """
+TRAININGCONFIG PARAMETER MAPPING DOCUMENTATION
+==============================================
+
+The TrainingConfig.from_args() method accepts command-line arguments or dictionary parameters
+and maps them to the appropriate configuration fields. This enables easy configuration from
+command-line scripts while maintaining backward compatibility.
+
+BASIC TRAINING PARAMETERS:
+--------------------------
+--epochs, --num-epochs          -> num_epochs (int, >0)
+--batch-size, --batch_size      -> batch_size (int, >0)
+--gradient-accumulation-steps   -> gradient_accumulation_steps (int, >0)
+--gradient-clip                 -> gradient_clip (float, >0)
+
+DEVICE AND PERFORMANCE:
+-----------------------
+--device                        -> device (str: 'cpu', 'cuda', 'mps')
+--use-amp, --use_amp            -> use_amp (bool)
+--num-workers, --num_workers    -> num_workers (int, >=0)
+--pin-memory, --pin_memory      -> pin_memory (bool)
+
+CHECKPOINTING:
+--------------
+--save-every, --save_every      -> save_every (int, >0)
+--checkpoint-dir                -> checkpoint_dir (str)
+--save-best-only                -> save_best_only (bool)
+
+EARLY STOPPING:
+---------------
+--early-stopping-patience       -> early_stopping_patience (int, >0)
+--early-stopping-min-delta      -> early_stopping_min_delta (float, >=0)
+
+EXPERIMENT TRACKING:
+--------------------
+--experiment-name               -> experiment_name (str)
+--project-name                  -> project_name (str)
+--log-every                     -> log_every (int, >0)
+
+VALIDATION:
+-----------
+--val-every                     -> val_every (int, >0)
+--val-metric                    -> val_metric (str)
+
+DATA SPLITS:
+------------
+--train-split                   -> train_split (float, 0<x<1)
+--val-split                     -> val_split (float, 0<x<1)
+--test-split                    -> test_split (float, 0<x<1)
+
+REPRODUCIBILITY:
+----------------
+--seed                          -> seed (int, >=0)
+--deterministic                 -> deterministic (bool)
+
+OPTIMIZER PARAMETERS:
+---------------------
+--learning-rate, --lr           -> optimizer.learning_rate (float, >0)
+--weight-decay                  -> optimizer.weight_decay (float, >=0)
+--optimizer-name                -> optimizer.name (str)
+--amsgrad                       -> optimizer.amsgrad (bool)
+
+SCHEDULER PARAMETERS:
+---------------------
+--scheduler-name                -> scheduler.name (str)
+--warmup-steps                  -> scheduler.warmup_steps (int, >=0)
+--max-steps                     -> scheduler.max_steps (int, >0)
+--min-lr                        -> scheduler.min_lr (float, >=0)
+--patience                      -> scheduler.patience (int, >0)
+--factor                        -> scheduler.factor (float, >0)
+
+BOOLEAN VALUE CONVERSION:
+-------------------------
+String values are converted as follows:
+- 'true', '1', 'yes', 'on' -> True
+- 'false', '0', 'no', 'off' -> False
+- Case insensitive
+
+USAGE EXAMPLES:
+---------------
+# From dictionary
+config = TrainingConfig.from_args({
+    'epochs': 100,
+    'batch_size': 32,
+    'learning_rate': 0.001,
+    'device': 'cuda'
+})
+
+# From argparse
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--epochs', type=int, default=100)
+parser.add_argument('--batch-size', type=int, default=32)
+args = parser.parse_args()
+config = TrainingConfig.from_args(args)
+
+ERROR HANDLING:
+---------------
+- ValueError: Invalid parameter values (negative numbers, invalid device, etc.)
+- TypeError: Wrong input type (not dict or Namespace)
+- Clear error messages indicate which parameter failed and why
+
+BACKWARD COMPATIBILITY:
+-----------------------
+- All existing TrainingConfig functionality remains unchanged
+- Existing tests continue to pass
+- Manual initialization still works: TrainingConfig(num_epochs=100, ...)
+- from_yaml() and from_dict() methods still work as before
+"""

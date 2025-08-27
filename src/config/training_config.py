@@ -80,6 +80,7 @@ class TrainingConfig:
     batch_size: int = 32
     gradient_accumulation_steps: int = 1
     gradient_clip: float = 1.0
+    warmup_steps: int = 0
     
     # Mixed precision training
     use_amp: bool = True
@@ -121,7 +122,6 @@ class TrainingConfig:
     
     # Training steps (calculated dynamically)
     steps_per_epoch: Optional[int] = None
-    warmup_steps: int = 0
     
     # Reproducibility
     seed: int = 42

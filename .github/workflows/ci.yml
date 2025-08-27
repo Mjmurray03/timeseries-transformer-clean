@@ -2,13 +2,12 @@ name: Test and Quality Checks
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
-    name: Test and Quality Checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -16,15 +15,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Normalize line endings for shell scripts
+      - name: Install system dependencies
         run: |
-          find . -type f -name "*.sh" -print0 | xargs -0 sed -i 's/\r$//'
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget automake autoconf libtool pkg-config
 
       - name: Cache TA-Lib build
         uses: actions/cache@v4
@@ -33,8 +33,6 @@ jobs:
           key: talib-${{ runner.os }}-v1
 
       - name: Install TA-Lib system library
-        env:
-          TA_VERSION: "0.4.0"
         run: |
           chmod +x scripts/ci/install_talib.sh
           scripts/ci/install_talib.sh
@@ -45,9 +43,7 @@ jobs:
           pip install "poetry<2"
 
       - name: Configure Poetry (no venv in CI)
-        run: |
-          poetry config virtualenvs.create false
-          poetry --version
+        run: poetry config virtualenvs.create false
 
       - name: Cache Poetry dependencies
         uses: actions/cache@v4
@@ -58,33 +54,35 @@ jobs:
             poetry-${{ runner.os }}-
 
       - name: Install dependencies
-        run: |
-          poetry install --no-interaction --no-root
+        run: poetry install --no-interaction --no-root
 
       - name: Run linting
         continue-on-error: true
         run: |
-          if [ -f "pyproject.toml" ]; then
-            poetry run ruff check . || true
-          fi
+          poetry run black --check src/ tests/ || true
+          poetry run isort --check-only src/ tests/ || true
+          poetry run flake8 src/ tests/ || true
 
       - name: Run type checking
         continue-on-error: true
-        run: |
-          if [ -f "pyproject.toml" ]; then
-            poetry run mypy . || true
-          fi
+        run: poetry run mypy src/ || true
 
       - name: Run security checks
         continue-on-error: true
         run: |
           poetry run bandit -r src/ || true
+          poetry run safety check || true
 
       - name: Run tests with coverage (always emit JUnit)
         continue-on-error: true
         run: |
           mkdir -p reports
-          poetry run pytest -q --maxfail=1 --disable-warnings --junitxml=reports/pytest.xml --cov=src --cov-report=xml --cov-report=term || true
+          poetry run pytest tests/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term \
+            --cov-fail-under=80 \
+            --junitxml=reports/pytest.xml || true
 
       - name: Upload test results
         if: always()

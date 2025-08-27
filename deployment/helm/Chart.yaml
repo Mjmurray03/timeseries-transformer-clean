@@ -1,0 +1,35 @@
+apiVersion: v2
+name: timeseries-transformer
+description: A Helm chart for Time-Series Transformer ML Model Deployment
+type: application
+version: 1.0.0
+appVersion: "v1.0.0"
+keywords:
+  - machine-learning
+  - time-series
+  - transformer
+  - prediction
+  - stock-market
+home: https://github.com/yourcompany/timeseries-transformer
+sources:
+  - https://github.com/yourcompany/timeseries-transformer
+maintainers:
+  - name: ML Team
+    email: ml-team@company.com
+dependencies:
+  - name: postgresql
+    version: 12.1.9
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: 17.3.17
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: prometheus
+    version: 19.0.1
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.prometheus.enabled
+  - name: grafana
+    version: 6.43.5
+    repository: https://grafana.github.io/helm-charts
+    condition: monitoring.grafana.enabled

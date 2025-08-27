@@ -1,0 +1,107 @@
+# Deployment validation requirements for timeseries-transformer
+
+# Model constraints
+max_model_size_mb: 500
+max_memory_mb: 2000
+
+# Performance requirements
+max_p99_latency_ms: 100
+max_p95_latency_ms: 50
+min_throughput_rps: 100
+
+# Quality thresholds
+max_rmse: 0.025
+min_accuracy: 0.50
+max_drift_score: 0.1
+
+# Kubernetes resource requirements
+kubernetes_resources:
+  cpu_request: "1000m"
+  memory_request: "2Gi"
+  cpu_limit: "2000m"
+  memory_limit: "4Gi"
+  gpu_request: "1"
+  gpu_limit: "1"
+
+# Security requirements
+security:
+  max_file_permissions: "644"
+  required_signatures: true
+  scan_vulnerabilities: true
+  allowed_python_packages:
+    - torch
+    - numpy
+    - pandas
+    - scikit-learn
+    - transformers
+
+# API compatibility
+api:
+  version: "v1"
+  required_endpoints:
+    - "/health"
+    - "/ready"
+    - "/predict"
+    - "/model/info"
+  input_schema:
+    type: "object"
+    required: ["ticker", "features"]
+    properties:
+      ticker:
+        type: "string"
+        pattern: "^[A-Z]{1,5}$"
+      features:
+        type: "array"
+        items:
+          type: "array"
+          minItems: 7
+          maxItems: 7
+        minItems: 60
+        maxItems: 60
+
+# Model architecture requirements
+architecture:
+  model_type: "transformer"
+  input_shape: [60, 7]
+  output_shape: [5]
+  sequence_length: 60
+  prediction_horizon: 5
+  feature_count: 7
+  required_features:
+    - "open"
+    - "high"
+    - "low"
+    - "close"
+    - "volume"
+    - "returns"
+    - "volatility"
+
+# Business metrics
+business_metrics:
+  min_sharpe_ratio: 0.5
+  max_drawdown: 0.2
+  min_win_rate: 0.45
+  min_profit_factor: 1.1
+
+# Infrastructure requirements
+infrastructure:
+  min_replicas: 2
+  max_replicas: 10
+  health_check_interval: 30
+  readiness_timeout: 30
+  liveness_timeout: 5
+  graceful_shutdown_timeout: 30
+
+# Monitoring requirements
+monitoring:
+  required_metrics:
+    - "model_predictions_total"
+    - "model_prediction_duration_seconds"
+    - "model_accuracy"
+    - "gpu_memory_usage_bytes"
+    - "http_requests_total"
+  alert_thresholds:
+    high_latency_p99: 0.1
+    high_error_rate: 0.05
+    high_memory_usage: 0.9
+    low_accuracy: 0.4

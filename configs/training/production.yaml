@@ -1,0 +1,66 @@
+# Production training configuration
+num_epochs: 200
+batch_size: 64
+gradient_accumulation_steps: 2
+gradient_clip: 1.0
+
+# Mixed precision training
+use_amp: true
+
+# Device configuration
+device: "cuda"
+num_workers: 8
+pin_memory: true
+
+# Checkpointing
+save_every: 10
+checkpoint_dir: "models/checkpoints/production"
+save_best_only: true
+
+# Early stopping
+early_stopping_patience: 20
+early_stopping_min_delta: 0.00001
+
+# Experiment tracking
+experiment_name: "production_training"
+project_name: "timeseries-transformer"
+log_every: 50
+
+# Validation
+val_every: 1
+val_metric: "loss"
+
+# Optimizer configuration
+optimizer:
+  name: "adamw"
+  learning_rate: 0.00005
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1e-8
+  amsgrad: false
+
+# Scheduler configuration
+scheduler:
+  name: "cosine"
+  warmup_steps: 2000
+  max_steps: 50000
+  min_lr: 1e-6
+  patience: 15
+  factor: 0.5
+
+# Loss configuration
+loss:
+  price_loss_weight: 1.0
+  direction_loss_weight: 0.5
+  volatility_loss_weight: 0.3
+  quantile_loss_weight: 0.2
+  quantiles: [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
+# Data splits
+train_split: 0.7
+val_split: 0.15
+test_split: 0.15
+
+# Reproducibility
+seed: 42
+deterministic: true

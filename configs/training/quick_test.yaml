@@ -1,0 +1,66 @@
+# Quick test configuration for debugging
+num_epochs: 5
+batch_size: 16
+gradient_accumulation_steps: 1
+gradient_clip: 1.0
+
+# Mixed precision training
+use_amp: true
+
+# Device configuration
+device: "cuda"
+num_workers: 2
+pin_memory: true
+
+# Checkpointing
+save_every: 2
+checkpoint_dir: "models/checkpoints/test"
+save_best_only: false
+
+# Early stopping
+early_stopping_patience: 3
+early_stopping_min_delta: 0.001
+
+# Experiment tracking
+experiment_name: "quick_test"
+project_name: "timeseries-transformer"
+log_every: 10
+
+# Validation
+val_every: 1
+val_metric: "loss"
+
+# Optimizer configuration
+optimizer:
+  name: "adamw"
+  learning_rate: 0.001
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1e-8
+  amsgrad: false
+
+# Scheduler configuration
+scheduler:
+  name: "step"
+  warmup_steps: 100
+  max_steps: 1000
+  min_lr: 1e-5
+  patience: 2
+  factor: 0.8
+
+# Loss configuration
+loss:
+  price_loss_weight: 1.0
+  direction_loss_weight: 0.3
+  volatility_loss_weight: 0.2
+  quantile_loss_weight: 0.1
+  quantiles: [0.25, 0.5, 0.75]
+
+# Data splits
+train_split: 0.7
+val_split: 0.15
+test_split: 0.15
+
+# Reproducibility
+seed: 42
+deterministic: true

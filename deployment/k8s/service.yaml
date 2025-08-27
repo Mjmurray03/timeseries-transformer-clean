@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: timeseries-transformer-service
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: model-server
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: timeseries-transformer
+    component: model-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8000
+    protocol: TCP
+  - name: metrics
+    port: 8001
+    targetPort: 8001
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 600
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timeseries-transformer-internal
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: model-server
+spec:
+  type: ClusterIP
+  selector:
+    app: timeseries-transformer
+    component: model-server
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  - name: metrics
+    port: 8001
+    targetPort: 8001
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timeseries-transformer-headless
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: model-server
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: timeseries-transformer
+    component: model-server
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP

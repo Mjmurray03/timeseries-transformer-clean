@@ -1,0 +1,179 @@
+groups:
+- name: timeseries-transformer-alerts
+  interval: 30s
+  rules:
+  
+  # Model Performance Alerts
+  - alert: ModelHighLatency
+    expr: histogram_quantile(0.99, rate(model_prediction_duration_seconds_bucket[5m])) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+      component: model
+    annotations:
+      summary: "Model inference latency is high"
+      description: "P99 latency is {{ $value }}s (threshold: 0.1s) for {{ $labels.instance }}"
+  
+  - alert: ModelCriticalLatency
+    expr: histogram_quantile(0.99, rate(model_prediction_duration_seconds_bucket[5m])) > 0.5
+    for: 2m
+    labels:
+      severity: critical
+      component: model
+    annotations:
+      summary: "Model inference latency is critically high"
+      description: "P99 latency is {{ $value }}s (threshold: 0.5s) for {{ $labels.instance }}"
+  
+  - alert: ModelAccuracyDegradation
+    expr: model_accuracy{metric_type="rmse"} > 0.025
+    for: 10m
+    labels:
+      severity: warning
+      component: model
+    annotations:
+      summary: "Model accuracy has degraded"
+      description: "RMSE is {{ $value }} (threshold: 0.025) for model {{ $labels.model_version }}"
+  
+  - alert: ModelPredictionDrift
+    expr: rate(model_prediction_drift[5m]) > 0.1
+    for: 15m
+    labels:
+      severity: warning
+      component: model
+    annotations:
+      summary: "Model predictions are drifting"
+      description: "Drift score is {{ $value }} (threshold: 0.1) for {{ $labels.instance }}"
+
+  # Infrastructure Alerts
+  - alert: HighMemoryUsage
+    expr: (container_memory_usage_bytes{pod=~"timeseries-transformer.*"} / container_spec_memory_limit_bytes) > 0.9
+    for: 5m
+    labels:
+      severity: warning
+      component: infrastructure
+    annotations:
+      summary: "High memory usage detected"
+      description: "Memory usage is {{ $value | humanizePercentage }} for pod {{ $labels.pod }}"
+  
+  - alert: HighCPUUsage
+    expr: rate(container_cpu_usage_seconds_total{pod=~"timeseries-transformer.*"}[5m]) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+      component: infrastructure
+    annotations:
+      summary: "High CPU usage detected"
+      description: "CPU usage is {{ $value | humanizePercentage }} for pod {{ $labels.pod }}"
+  
+  - alert: GPUMemoryHigh
+    expr: gpu_memory_usage_bytes / (24 * 1024 * 1024 * 1024) > 0.9
+    for: 5m
+    labels:
+      severity: warning
+      component: gpu
+    annotations:
+      summary: "GPU memory usage is high"
+      description: "GPU memory usage is {{ $value | humanizePercentage }} on device {{ $labels.device }}"
+  
+  - alert: PodCrashLooping
+    expr: rate(kube_pod_container_status_restarts_total{namespace="timeseries-transformer"}[15m]) > 0
+    for: 5m
+    labels:
+      severity: critical
+      component: kubernetes
+    annotations:
+      summary: "Pod is crash looping"
+      description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+
+  # API Alerts
+  - alert: HighErrorRate
+    expr: rate(http_requests_total{status=~"5..",job="timeseries-transformer"}[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: critical
+      component: api
+    annotations:
+      summary: "High API error rate"
+      description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.instance }}"
+  
+  - alert: HighRequestRate
+    expr: rate(http_requests_total{job="timeseries-transformer"}[5m]) > 1000
+    for: 5m
+    labels:
+      severity: warning
+      component: api
+    annotations:
+      summary: "High API request rate"
+      description: "Request rate is {{ $value }} req/s for {{ $labels.instance }}"
+  
+  - alert: APIDown
+    expr: up{job="timeseries-transformer"} == 0
+    for: 1m
+    labels:
+      severity: critical
+      component: api
+    annotations:
+      summary: "API service is down"
+      description: "{{ $labels.instance }} has been down for more than 1 minute"
+
+  # Database Alerts
+  - alert: PostgresDown
+    expr: up{job="postgres"} == 0
+    for: 1m
+    labels:
+      severity: critical
+      component: database
+    annotations:
+      summary: "PostgreSQL is down"
+      description: "PostgreSQL instance {{ $labels.instance }} is down"
+  
+  - alert: PostgresHighConnections
+    expr: pg_stat_database_numbackends{datname="timeseries"} > 80
+    for: 5m
+    labels:
+      severity: warning
+      component: database
+    annotations:
+      summary: "High number of PostgreSQL connections"
+      description: "{{ $value }} connections to database {{ $labels.datname }}"
+  
+  - alert: RedisDown
+    expr: up{job="redis"} == 0
+    for: 1m
+    labels:
+      severity: critical
+      component: cache
+    annotations:
+      summary: "Redis is down"
+      description: "Redis instance {{ $labels.instance }} is down"
+  
+  - alert: RedisHighMemory
+    expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+    for: 5m
+    labels:
+      severity: warning
+      component: cache
+    annotations:
+      summary: "Redis memory usage is high"
+      description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+  # Business Metrics Alerts
+  - alert: LowPredictionVolume
+    expr: rate(model_predictions_total[1h]) < 10
+    for: 30m
+    labels:
+      severity: warning
+      component: business
+    annotations:
+      summary: "Low prediction volume"
+      description: "Only {{ $value }} predictions per hour for model {{ $labels.model_version }}"
+  
+  - alert: NegativeSharpeRatio
+    expr: model_sharpe_ratio < 0
+    for: 1h
+    labels:
+      severity: warning
+      component: business
+    annotations:
+      summary: "Negative Sharpe ratio detected"
+      description: "Sharpe ratio is {{ $value }} for model {{ $labels.model_version }}"

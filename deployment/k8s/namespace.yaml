@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    environment: production
+    team: ml-engineering
+  annotations:
+    description: "Namespace for time-series transformer ML services"
+    contact: "ml-team@company.com"

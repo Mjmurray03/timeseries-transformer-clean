@@ -1,0 +1,234 @@
+version: '3.8'
+
+services:
+  # API Service
+  api:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+      target: inference
+    container_name: timeseries-api
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_VERSION=v1.0.0
+      - LOG_LEVEL=INFO
+      - MAX_BATCH_SIZE=32
+      - MODEL_PATH=/app/models
+      - CACHE_ENABLED=true
+      - PROMETHEUS_ENABLED=true
+    volumes:
+      - ../../models:/app/models:ro
+      - api-logs:/app/logs
+    networks:
+      - timeseries-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "python", "health_check.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Training Service (GPU-enabled)
+  training:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+      target: training
+    container_name: timeseries-training
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - WANDB_API_KEY=${WANDB_API_KEY}
+      - WANDB_PROJECT=timeseries-transformer
+      - MODEL_OUTPUT_PATH=/app/models
+      - DATA_PATH=/app/data
+    volumes:
+      - ../../data:/app/data
+      - ../../models:/app/models
+      - ../../configs:/app/configs
+      - training-logs:/app/logs
+    networks:
+      - timeseries-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - training
+
+  # Development Environment
+  dev:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+      target: development
+    container_name: timeseries-dev
+    ports:
+      - "8000:8000"  # API
+      - "8888:8888"  # Jupyter
+    environment:
+      - PYTHONPATH=/app
+      - JUPYTER_ENABLE_LAB=yes
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ../..:/app
+      - dev-cache:/root/.cache
+    networks:
+      - timeseries-network
+    stdin_open: true
+    tty: true
+    profiles:
+      - development
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: timeseries-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - timeseries-network
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: timeseries-db
+    environment:
+      - POSTGRES_DB=timeseries
+      - POSTGRES_USER=${DB_USER:-tsuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-tspass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../scripts/sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - timeseries-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-tsuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NGINX Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: timeseries-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - nginx-cache:/var/cache/nginx
+    networks:
+      - timeseries-network
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: timeseries-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - timeseries-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: timeseries-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel
+    volumes:
+      - ../monitoring/grafana:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - timeseries-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Loki for Log Aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: timeseries-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ../monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - timeseries-network
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Promtail for Log Collection
+  promtail:
+    image: grafana/promtail:latest
+    container_name: timeseries-promtail
+    volumes:
+      - ../monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - api-logs:/var/log/api:ro
+      - training-logs:/var/log/training:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - timeseries-network
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+networks:
+  timeseries-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  api-logs:
+  training-logs:
+  dev-cache:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  nginx-cache:

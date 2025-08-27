@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-config
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: configuration
+data:
+  model-config.yaml: |
+    model:
+      name: timeseries-transformer
+      version: v1.0.0
+      architecture: transformer-6layer
+      parameters:
+        d_model: 512
+        nhead: 8
+        num_layers: 6
+        dropout: 0.1
+        sequence_length: 60
+        prediction_horizon: 5
+    
+    inference:
+      batch_size: 32
+      max_batch_size: 64
+      timeout_seconds: 30
+      warmup_samples: 10
+      cache_enabled: true
+      cache_ttl_seconds: 300
+    
+    features:
+      price_features:
+        - open
+        - high
+        - low
+        - close
+        - volume
+      technical_indicators:
+        - sma_20
+        - sma_50
+        - ema_12
+        - ema_26
+        - rsi_14
+        - macd
+        - bollinger_bands
+      engineered_features:
+        - returns
+        - log_returns
+        - volatility
+        - volume_ratio
+    
+    preprocessing:
+      scaling_method: robust
+      outlier_removal: true
+      outlier_threshold: 3.0
+      missing_value_strategy: forward_fill
+      sequence_padding: true
+    
+    api:
+      rate_limit: 100
+      rate_limit_window: 60
+      max_request_size_mb: 10
+      cors_enabled: true
+      cors_origins:
+        - "*"
+      allowed_methods:
+        - GET
+        - POST
+        - OPTIONS
+    
+    monitoring:
+      prometheus_enabled: true
+      metrics_port: 8001
+      log_level: INFO
+      log_format: json
+      trace_enabled: false
+      trace_sample_rate: 0.1
+
+  logging-config.yaml: |
+    version: 1
+    disable_existing_loggers: false
+    formatters:
+      default:
+        format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+      json:
+        class: pythonjsonlogger.jsonlogger.JsonFormatter
+        format: '%(asctime)s %(name)s %(levelname)s %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        level: INFO
+        formatter: json
+        stream: ext://sys.stdout
+      file:
+        class: logging.handlers.RotatingFileHandler
+        level: DEBUG
+        formatter: json
+        filename: /app/logs/application.log
+        maxBytes: 104857600
+        backupCount: 10
+    root:
+      level: INFO
+      handlers: [console, file]
+    loggers:
+      uvicorn:
+        level: INFO
+      src:
+        level: DEBUG
+
+  database-config.yaml: |
+    database:
+      host: postgres-service.timeseries-transformer.svc.cluster.local
+      port: 5432
+      name: timeseries
+      pool_size: 10
+      max_overflow: 20
+      pool_timeout: 30
+      echo: false
+    
+    redis:
+      host: redis-service.timeseries-transformer.svc.cluster.local
+      port: 6379
+      db: 0
+      decode_responses: true
+      max_connections: 50
+      socket_keepalive: true
+      socket_keepalive_options:
+        TCP_KEEPINTVL: 30
+        TCP_KEEPCNT: 3
+        TCP_KEEPIDLE: 120
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: nginx
+data:
+  nginx.conf: |
+    upstream model_backend {
+        least_conn;
+        server timeseries-transformer-internal:8000 weight=3 max_fails=3 fail_timeout=30s;
+    }
+    
+    server {
+        listen 80;
+        server_name _;
+        
+        client_max_body_size 10M;
+        client_body_buffer_size 128k;
+        
+        location /health {
+            proxy_pass http://model_backend/health;
+            access_log off;
+        }
+        
+        location /predict {
+            limit_req zone=predict_limit burst=20 nodelay;
+            proxy_pass http://model_backend/predict;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }

@@ -1,0 +1,106 @@
+{
+  "feature_statistics": {
+    "AAPL": {
+      "price_features": {
+        "open": {
+          "mean": 150.25,
+          "std": 25.30,
+          "min": 89.14,
+          "max": 198.23,
+          "count": 1260
+        },
+        "high": {
+          "mean": 152.18,
+          "std": 25.67,
+          "min": 91.75,
+          "max": 199.62,
+          "count": 1260
+        },
+        "low": {
+          "mean": 148.32,
+          "std": 24.93,
+          "min": 87.32,
+          "max": 196.85,
+          "count": 1260
+        },
+        "close": {
+          "mean": 150.25,
+          "std": 25.30,
+          "min": 89.14,
+          "max": 198.23,
+          "count": 1260
+        },
+        "volume": {
+          "mean": 75000000,
+          "std": 25000000,
+          "min": 25000000,
+          "max": 180000000,
+          "count": 1260
+        }
+      },
+      "technical_indicators": {
+        "rsi": {
+          "mean": 50.0,
+          "std": 15.2,
+          "min": 10.5,
+          "max": 89.3,
+          "count": 1246
+        },
+        "macd": {
+          "mean": 0.12,
+          "std": 2.45,
+          "min": -8.32,
+          "max": 7.89,
+          "count": 1234
+        },
+        "bb_upper": {
+          "mean": 155.67,
+          "std": 26.12,
+          "min": 95.23,
+          "max": 205.45,
+          "count": 1240
+        },
+        "bb_lower": {
+          "mean": 144.83,
+          "std": 24.48,
+          "min": 83.05,
+          "max": 191.01,
+          "count": 1240
+        }
+      },
+      "returns": {
+        "daily_return": {
+          "mean": 0.0008,
+          "std": 0.0234,
+          "min": -0.1287,
+          "max": 0.1156,
+          "count": 1259
+        },
+        "log_return": {
+          "mean": 0.0005,
+          "std": 0.0234,
+          "min": -0.1375,
+          "max": 0.1092,
+          "count": 1259
+        }
+      },
+      "data_quality": {
+        "missing_values": 0,
+        "outliers_detected": 12,
+        "data_completeness": 1.0,
+        "last_updated": "2024-01-15T10:30:00Z"
+      }
+    }
+  },
+  "global_statistics": {
+    "total_tickers": 10,
+    "total_records": 12600,
+    "date_range": {
+      "start": "2019-01-01",
+      "end": "2024-01-15"
+    },
+    "feature_count": 15,
+    "data_quality_score": 0.95,
+    "last_updated": "2024-01-15T10:30:00Z"
+  }
+}

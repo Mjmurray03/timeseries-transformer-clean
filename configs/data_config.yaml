@@ -1,0 +1,206 @@
+# Data Collection Configuration
+# Time-Series Transformer Project
+
+# Data Sources Configuration
+data_sources:
+  yahoo_finance:
+    enabled: true
+    rate_limit: 5  # requests per second
+    timeout: 30    # seconds
+    retry_attempts: 3
+    retry_delay: 1  # seconds
+    
+  alpha_vantage:
+    enabled: false  # Enable when API key is configured
+    rate_limit: 5   # requests per minute (free tier)
+    timeout: 30
+    retry_attempts: 3
+    retry_delay: 60  # seconds between retries
+    
+  news_api:
+    enabled: false  # Enable when API key is configured
+    rate_limit: 1000  # requests per day (free tier)
+    timeout: 30
+    retry_attempts: 2
+    retry_delay: 300  # 5 minutes
+
+# Ticker Configuration
+tickers:
+  # S&P 500 Major Components
+  large_cap:
+    - AAPL  # Apple Inc.
+    - MSFT  # Microsoft Corporation
+    - GOOGL # Alphabet Inc.
+    - AMZN  # Amazon.com Inc.
+    - TSLA  # Tesla Inc.
+    - META  # Meta Platforms Inc.
+    - NVDA  # NVIDIA Corporation
+    - JPM   # JPMorgan Chase & Co.
+    - JNJ   # Johnson & Johnson
+    - V     # Visa Inc.
+    
+  # Technology Sector Focus
+  tech_stocks:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - META
+    - NVDA
+    - CRM   # Salesforce
+    - ORCL  # Oracle
+    - ADBE  # Adobe
+    - NFLX  # Netflix
+    - PYPL  # PayPal
+    
+  # Test/Development Set (smaller for faster iteration)
+  test_set:
+    - AAPL
+    - MSFT
+    - GOOGL
+
+# Date Range Configuration
+date_ranges:
+  # Full historical data (5+ years for robust training)
+  full_history:
+    start_date: "2019-01-01"
+    end_date: null  # null means current date
+    
+  # Recent data for quick testing
+  recent:
+    start_date: "2023-01-01"
+    end_date: null
+    
+  # Specific backtesting period
+  backtest_2023:
+    start_date: "2023-01-01"
+    end_date: "2023-12-31"
+    
+  # Training/validation split dates
+  training_period:
+    start_date: "2019-01-01"
+    end_date: "2023-06-30"
+    
+  validation_period:
+    start_date: "2023-07-01"
+    end_date: "2023-12-31"
+
+# Data Quality Parameters
+data_quality:
+  min_trading_days: 252      # Minimum 1 year of data
+  max_missing_ratio: 0.05    # Maximum 5% missing data
+  outlier_threshold: 10      # Standard deviations for outlier detection
+  min_volume: 100000         # Minimum daily volume
+  min_price: 1.0            # Minimum stock price
+  max_price: 10000.0        # Maximum stock price (sanity check)
+
+# Feature Engineering Configuration
+features:
+  # Technical Indicators
+  technical_indicators:
+    rsi:
+      enabled: true
+      period: 14
+      
+    macd:
+      enabled: true
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+      
+    bollinger_bands:
+      enabled: true
+      period: 20
+      std_dev: 2
+      
+    moving_averages:
+      enabled: true
+      periods: [5, 10, 20, 50, 200]
+      
+    volume_indicators:
+      enabled: true
+      
+  # Price-based Features
+  price_features:
+    returns:
+      enabled: true
+      periods: [1, 5, 10, 20]  # daily, weekly, bi-weekly, monthly
+      
+    price_ratios:
+      enabled: true
+      high_low_ratio: true
+      close_open_ratio: true
+      
+    volatility:
+      enabled: true
+      rolling_window: 20
+      
+  # Time-based Features
+  temporal_features:
+    enabled: true
+    day_of_week: true
+    month_of_year: true
+    quarter: true
+    is_month_end: true
+    is_quarter_end: true
+
+# Sequence Generation Parameters
+sequences:
+  window_size: 60           # 60 days of historical data
+  forecast_horizon: 5       # Predict 5 days ahead
+  stride: 1                 # Step size between sequences
+  min_sequences: 100        # Minimum sequences per ticker
+  
+# Storage Configuration
+storage:
+  # Raw data storage
+  raw_data:
+    format: "parquet"       # parquet, csv, hdf5
+    compression: "snappy"   # snappy, gzip, lz4
+    partition_by: "ticker"  # ticker, date, year_month
+    
+  # Processed data storage
+  processed_data:
+    format: "pytorch"       # pytorch, hdf5, parquet
+    compression: true
+    
+  # Metadata storage
+  metadata:
+    database_type: "sqlite" # sqlite, postgresql
+    backup_enabled: true
+    backup_frequency: "daily"
+
+# Caching Configuration
+caching:
+  enabled: true
+  cache_type: "memory"      # memory, redis, disk
+  max_size_mb: 1024        # Maximum cache size in MB
+  ttl_seconds: 3600        # Time to live for cached data
+  
+# Logging Configuration
+logging:
+  level: "INFO"             # DEBUG, INFO, WARNING, ERROR
+  format: "structured"      # structured, simple
+  log_to_file: true
+  log_file: "logs/data_collection.log"
+  max_file_size_mb: 100
+  backup_count: 5
+
+# Parallel Processing
+parallel_processing:
+  enabled: true
+  max_workers: 4           # Number of parallel download workers
+  chunk_size: 10           # Tickers per chunk
+  
+# Monitoring and Alerts
+monitoring:
+  enabled: true
+  metrics_collection: true
+  alert_on_failures: true
+  max_consecutive_failures: 3
+  
+# Development/Testing Overrides
+development:
+  use_sample_data: false   # Use pre-downloaded sample data
+  mock_api_calls: false    # Mock API calls for testing
+  reduced_date_range: false # Use smaller date range for testing
+  debug_mode: false        # Enable debug logging and checks

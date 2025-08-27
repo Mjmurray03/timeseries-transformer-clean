@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: model-server
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: model-server-role
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: model-server-rolebinding
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: model-server-role
+subjects:
+- kind: ServiceAccount
+  name: model-server
+  namespace: timeseries-transformer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: timeseries-transformer-metrics
+  labels:
+    app: timeseries-transformer
+rules:
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: timeseries-transformer-metrics-binding
+  labels:
+    app: timeseries-transformer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: timeseries-transformer-metrics
+subjects:
+- kind: ServiceAccount
+  name: model-server
+  namespace: timeseries-transformer

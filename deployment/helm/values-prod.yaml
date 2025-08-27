@@ -1,0 +1,155 @@
+# Production environment values
+replicaCount: 3
+
+image:
+  tag: "v1.0.0"
+
+service:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/rate-limit-burst: "200"
+  hosts:
+    - host: api.timeseries-transformer.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: timeseries-transformer-tls
+      hosts:
+        - api.timeseries-transformer.com
+
+resources:
+  limits:
+    cpu: 4000m
+    memory: 8Gi
+    nvidia.com/gpu: 1
+  requests:
+    cpu: 2000m
+    memory: 4Gi
+    nvidia.com/gpu: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 70
+
+nodeSelector:
+  accelerator: nvidia-tesla-v100
+  node-type: gpu-optimized
+
+persistence:
+  storageClass: "fast-ssd"
+  size: 100Gi
+
+modelConfig:
+  maxBatchSize: 128
+  cacheTTL: 600
+  warmupSamples: 20
+
+env:
+  - name: LOG_LEVEL
+    value: "WARNING"
+  - name: ENVIRONMENT
+    value: "production"
+  - name: MAX_WORKERS
+    value: "8"
+
+postgresql:
+  enabled: true
+  architecture: replication
+  persistence:
+    size: 500Gi
+  primary:
+    resources:
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+  readReplicas:
+    replicaCount: 2
+    resources:
+      limits:
+        memory: 2Gi
+        cpu: 1000m
+      requests:
+        memory: 1Gi
+        cpu: 500m
+
+redis:
+  enabled: true
+  architecture: replication
+  auth:
+    enabled: true
+    password: "strong-redis-password"
+  master:
+    persistence:
+      size: 20Gi
+    resources:
+      limits:
+        memory: 2Gi
+        cpu: 1000m
+      requests:
+        memory: 1Gi
+        cpu: 500m
+  replica:
+    replicaCount: 3
+    persistence:
+      size: 20Gi
+    resources:
+      limits:
+        memory: 1Gi
+        cpu: 500m
+      requests:
+        memory: 512Mi
+        cpu: 250m
+  sentinel:
+    enabled: true
+    quorum: 2
+
+monitoring:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      interval: 15s
+    alerting:
+      enabled: true
+      rules:
+        - alert: HighErrorRate
+          expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: High error rate detected
+        - alert: HighLatency
+          expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: High latency detected
+  grafana:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      limits:
+        memory: 512Mi
+        cpu: 500m
+      requests:
+        memory: 256Mi
+        cpu: 250m

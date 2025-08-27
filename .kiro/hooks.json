@@ -1,0 +1,360 @@
+{
+    "hooks": [
+        {
+            "name": "model_checkpoint_validation",
+            "description": "Validate model checkpoint when saved",
+            "enabled": true,
+            "trigger": {
+                "type": "file_save",
+                "filePattern": "models/checkpoints/**/*.pt"
+            },
+            "actions": [
+                {
+                    "type": "run_script",
+                    "script": "scripts/validation/validate_checkpoint.py",
+                    "args": [
+                        "${file_path}"
+                    ]
+                },
+                {
+                    "type": "run_test",
+                    "test": "tests/unit/test_model_loading.py::test_checkpoint_compatibility"
+                },
+                {
+                    "type": "generate_report",
+                    "template": "model_validation_report.md",
+                    "output": "reports/checkpoint_${timestamp}.md"
+                }
+            ]
+        },
+        {
+            "name": "data_pipeline_validation",
+            "description": "Validate data processing scripts",
+            "enabled": true,
+            "trigger": {
+                "type": "file_save",
+                "filePattern": "src/data/**/*.py"
+            },
+            "actions": [
+                {
+                    "type": "run_linter",
+                    "linters": [
+                        "black",
+                        "isort",
+                        "mypy"
+                    ],
+                    "autoFix": true
+                },
+                {
+                    "type": "run_test",
+                    "test": "tests/unit/test_data/",
+                    "coverage": true,
+                    "minCoverage": 80
+                },
+                {
+                    "type": "update_documentation",
+                    "source": "${file_path}",
+                    "output": "docs/api/data.md"
+                }
+            ]
+        },
+        {
+            "name": "training_completion",
+            "description": "Post-training validation and reporting",
+            "enabled": true,
+            "trigger": {
+                "type": "file_create",
+                "filePattern": "models/checkpoints/**/training_complete.flag"
+            },
+            "actions": [
+                {
+                    "type": "run_script",
+                    "script": "scripts/evaluation/evaluate_model.py",
+                    "args": [
+                        "--checkpoint",
+                        "${directory}/best_model.pt"
+                    ]
+                },
+                {
+                    "type": "run_script",
+                    "script": "scripts/evaluation/generate_attention_maps.py",
+                    "args": [
+                        "--model",
+                        "${directory}/best_model.pt"
+                    ]
+                },
+                {
+                    "type": "generate_report",
+                    "template": "training_report.md",
+                    "output": "reports/training_${experiment_id}.md",
+                    "includeMetrics": true
+                },
+                {
+                    "type": "notify",
+                    "channels": [
+                        "slack",
+                        "email"
+                    ],
+                    "message": "Training completed for experiment ${experiment_id}"
+                }
+            ]
+        },
+        {
+            "name": "api_deployment_validation",
+            "description": "Validate API changes before deployment",
+            "enabled": true,
+            "trigger": {
+                "type": "file_save",
+                "filePattern": "src/api/**/*.py"
+            },
+            "actions": [
+                {
+                    "type": "run_test",
+                    "test": "tests/integration/test_api.py",
+                    "markers": [
+                        "api",
+                        "integration"
+                    ]
+                },
+                {
+                    "type": "validate_schema",
+                    "schema": "configs/api/openapi.json",
+                    "target": "${file_path}"
+                },
+                {
+                    "type": "performance_test",
+                    "script": "tests/performance/test_api_latency.py",
+                    "threshold": {
+                        "p50": 50,
+                        "p99": 100
+                    }
+                },
+                {
+                    "type": "security_scan",
+                    "tools": [
+                        "bandit",
+                        "safety"
+                    ],
+                    "failOnHigh": true
+                }
+            ]
+        },
+        {
+            "name": "config_update_sync",
+            "description": "Sync configuration changes across environments",
+            "enabled": true,
+            "trigger": {
+                "type": "file_save",
+                "filePattern": "configs/**/*.yaml"
+            },
+            "actions": [
+                {
+                    "type": "validate_yaml",
+                    "schema": "configs/schemas/${file_type}_schema.json"
+                },
+                {
+                    "type": "run_script",
+                    "script": "scripts/config/validate_config.py",
+                    "args": [
+                        "${file_path}"
+                    ]
+                },
+                {
+                    "type": "update_dependent_configs",
+                    "dependencies": {
+                        "model/*.yaml": [
+                            "training/*.yaml",
+                            "inference/*.yaml"
+                        ],
+                        "training/*.yaml": [
+                            "deployment/*.yaml"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "performance_regression_detection",
+            "description": "Detect performance regressions in model updates",
+            "enabled": true,
+            "trigger": {
+                "type": "git_push",
+                "branches": [
+                    "main",
+                    "develop"
+                ]
+            },
+            "actions": [
+                {
+                    "type": "run_benchmark",
+                    "benchmarks": [
+                        "tests/performance/test_inference_speed.py",
+                        "tests/performance/test_memory_usage.py"
+                    ],
+                    "compareWith": "baseline"
+                },
+                {
+                    "type": "conditional_action",
+                    "condition": "benchmark_regression > 10%",
+                    "action": {
+                        "type": "block_merge",
+                        "message": "Performance regression detected: ${regression_details}"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "data_quality_monitoring",
+            "description": "Monitor data quality on new data ingestion",
+            "enabled": true,
+            "trigger": {
+                "type": "file_create",
+                "filePattern": "data/raw/**/*.parquet"
+            },
+            "actions": [
+                {
+                    "type": "run_script",
+                    "script": "scripts/data/validate_data_quality.py",
+                    "args": [
+                        "${file_path}"
+                    ]
+                },
+                {
+                    "type": "generate_statistics",
+                    "output": "data/metadata/stats_${file_name}.json"
+                },
+                {
+                    "type": "detect_drift",
+                    "reference": "data/metadata/reference_distribution.json",
+                    "threshold": 0.1
+                },
+                {
+                    "type": "conditional_action",
+                    "condition": "drift_detected",
+                    "action": {
+                        "type": "alert",
+                        "severity": "warning",
+                        "message": "Data drift detected in ${file_name}"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "documentation_generation",
+            "description": "Auto-generate documentation from code",
+            "enabled": true,
+            "trigger": {
+                "type": "file_save",
+                "filePattern": "src/**/*.py"
+            },
+            "actions": [
+                {
+                    "type": "extract_docstrings",
+                    "format": "google",
+                    "output": "docs/api/${module_name}.md"
+                },
+                {
+                    "type": "generate_type_hints_docs",
+                    "output": "docs/types/${module_name}.md"
+                },
+                {
+                    "type": "update_readme",
+                    "sections": [
+                        "API",
+                        "Examples"
+                    ],
+                    "ifChanged": true
+                }
+            ]
+        },
+        {
+            "name": "dependency_security_scan",
+            "description": "Scan dependencies for vulnerabilities",
+            "enabled": true,
+            "trigger": {
+                "type": "file_save",
+                "filePattern": [
+                    "requirements.txt",
+                    "pyproject.toml",
+                    "poetry.lock"
+                ]
+            },
+            "actions": [
+                {
+                    "type": "security_scan",
+                    "tools": [
+                        "safety",
+                        "pip-audit"
+                    ],
+                    "updateDatabase": true
+                },
+                {
+                    "type": "license_check",
+                    "allowedLicenses": [
+                        "MIT",
+                        "Apache-2.0",
+                        "BSD"
+                    ],
+                    "failOnGPL": true
+                },
+                {
+                    "type": "generate_sbom",
+                    "format": "cyclonedx",
+                    "output": "security/sbom.json"
+                }
+            ]
+        },
+        {
+            "name": "experiment_tracking",
+            "description": "Track ML experiments automatically",
+            "enabled": true,
+            "trigger": {
+                "type": "script_run",
+                "scriptPattern": "scripts/training/train_*.py"
+            },
+            "actions": [
+                {
+                    "type": "log_to_mlflow",
+                    "trackingUri": "http://localhost:5000",
+                    "experimentName": "${script_name}_${timestamp}"
+                },
+                {
+                    "type": "capture_environment",
+                    "include": [
+                        "pip_freeze",
+                        "git_hash",
+                        "system_info"
+                    ],
+                    "output": "experiments/${experiment_id}/environment.json"
+                },
+                {
+                    "type": "backup_code",
+                    "destination": "experiments/${experiment_id}/code_snapshot.tar.gz"
+                }
+            ]
+        }
+    ],
+    "global_settings": {
+        "enabled": true,
+        "log_level": "INFO",
+        "log_file": ".kiro/logs/hooks.log",
+        "parallel_execution": true,
+        "max_parallel_hooks": 3,
+        "timeout_seconds": 300,
+        "retry_failed_hooks": true,
+        "retry_count": 2,
+        "notification_channels": {
+            "slack": {
+                "webhook_url": "${SLACK_WEBHOOK_URL}",
+                "channel": "#ml-alerts"
+            },
+            "email": {
+                "smtp_server": "smtp.gmail.com",
+                "from": "ml-alerts@example.com",
+                "to": [
+                    "team@example.com"
+                ]
+            }
+        }
+    }
+}

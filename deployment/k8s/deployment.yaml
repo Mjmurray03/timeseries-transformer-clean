@@ -1,0 +1,179 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timeseries-transformer
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    version: v1.0.0
+    component: model-server
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: timeseries-transformer
+      component: model-server
+  template:
+    metadata:
+      labels:
+        app: timeseries-transformer
+        version: v1.0.0
+        component: model-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - timeseries-transformer
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: model-server
+        image: timeseries-transformer:v1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8001
+          protocol: TCP
+        env:
+        - name: MODEL_VERSION
+          value: "v1.0.0"
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: MAX_BATCH_SIZE
+          value: "32"
+        - name: MODEL_PATH
+          value: "/app/models"
+        - name: CACHE_ENABLED
+          value: "true"
+        - name: PROMETHEUS_ENABLED
+          value: "true"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        envFrom:
+        - configMapRef:
+            name: model-config
+        - secretRef:
+            name: model-secrets
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - name: model-storage
+          mountPath: /app/models
+          readOnly: true
+        - name: config-volume
+          mountPath: /app/configs
+          readOnly: true
+        - name: cache-volume
+          mountPath: /app/cache
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 30
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+      initContainers:
+      - name: model-downloader
+        image: busybox:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Downloading model artifacts..."
+          # In production, replace with actual model download from S3/GCS
+          if [ ! -f /models/model.pt ]; then
+            echo "Model not found, downloading..."
+            # wget https://model-storage.example.com/models/v1.0.0/model.pt -O /models/model.pt
+            echo "Model download complete"
+          else
+            echo "Model already exists"
+          fi
+        volumeMounts:
+        - name: model-storage
+          mountPath: /models
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage-pvc
+      - name: config-volume
+        configMap:
+          name: model-config
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 1Gi
+      serviceAccountName: model-server
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      nodeSelector:
+        accelerator: nvidia-tesla-t4
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule

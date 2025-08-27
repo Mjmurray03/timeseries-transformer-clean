@@ -1,0 +1,59 @@
+# Development environment values
+replicaCount: 1
+
+image:
+  pullPolicy: Always
+  tag: "dev"
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+    nvidia.com/gpu: 0
+
+autoscaling:
+  enabled: false
+
+nodeSelector: {}
+
+tolerations: []
+
+persistence:
+  storageClass: "standard"
+  size: 10Gi
+
+modelConfig:
+  cacheEnabled: false
+  warmupSamples: 1
+
+env:
+  - name: LOG_LEVEL
+    value: "DEBUG"
+  - name: CUDA_VISIBLE_DEVICES
+    value: "-1"  # CPU only for dev
+
+postgresql:
+  persistence:
+    size: 10Gi
+
+redis:
+  master:
+    persistence:
+      size: 1Gi
+  replica:
+    replicaCount: 0
+
+monitoring:
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false

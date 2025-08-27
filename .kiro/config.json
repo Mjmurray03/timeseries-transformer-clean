@@ -1,0 +1,176 @@
+{
+    "project": {
+      "name": "timeseries-transformer",
+      "version": "1.0.0",
+      "description": "Temporal Fusion Transformer for stock price prediction with attention-based interpretability",
+      "type": "machine_learning",
+      "language": "python",
+      "framework": "pytorch"
+    },
+    "steering": {
+      "enabled": true,
+      "files": [
+        "steering/product.md",
+        "steering/tech.md",
+        "steering/structure.md",
+        "steering/ml-infrastructure.md",
+        "steering/data-pipeline.md",
+        "steering/deployment-standards.md",
+        "steering/testing-standards.md"
+      ],
+      "contextWindow": 8000,
+      "includePattern": "always",
+      "updateFrequency": "on_file_change"
+    },
+    "specs": {
+      "enabled": true,
+      "directory": "specs/",
+      "autoGenerate": true,
+      "templates": {
+        "requirements": "templates/requirements.md",
+        "design": "templates/design.md",
+        "tasks": "templates/tasks.md"
+      },
+      "taskTracking": {
+        "enabled": true,
+        "provider": "github_issues",
+        "autoCreateIssues": false,
+        "labels": ["kiro-task", "auto-generated"]
+      }
+    },
+    "hooks": {
+      "enabled": true,
+      "configFile": "hooks.json",
+      "autoReload": true,
+      "debugMode": false
+    },
+    "mcpServers": {
+      "github": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {
+          "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+        },
+        "autoApprove": ["read_file", "search_repositories", "file_search"],
+        "alwaysAllow": []
+      },
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", ".", "--no-write"],
+        "autoApprove": ["read_file", "list_directory"],
+        "disabled": false
+      },
+      "mlflow": {
+        "command": "python",
+        "args": ["-m", "mcp_servers.mlflow", "--tracking-uri", "http://localhost:5000"],
+        "env": {
+          "MLFLOW_TRACKING_URI": "http://localhost:5000"
+        },
+        "autoApprove": ["list_experiments", "get_metrics"],
+        "disabled": true
+      },
+      "wandb": {
+        "command": "python",
+        "args": ["-m", "mcp_servers.wandb"],
+        "env": {
+          "WANDB_API_KEY": "${WANDB_API_KEY}"
+        },
+        "autoApprove": ["list_runs", "get_metrics"],
+        "disabled": true
+      }
+    },
+    "development": {
+      "autoFormat": true,
+      "formatters": {
+        "python": ["black", "isort"],
+        "yaml": ["prettier"],
+        "json": ["prettier"]
+      },
+      "linters": {
+        "python": ["mypy", "ruff", "pylint"],
+        "yaml": ["yamllint"],
+        "dockerfile": ["hadolint"]
+      },
+      "testing": {
+        "framework": "pytest",
+        "coverage": {
+          "enabled": true,
+          "threshold": 80,
+          "excludePatterns": ["tests/*", "scripts/*", "notebooks/*"]
+        },
+        "markers": ["unit", "integration", "performance", "smoke"]
+      }
+    },
+    "deployment": {
+      "environments": ["development", "staging", "production"],
+      "cicd": {
+        "provider": "github_actions",
+        "pipelineFile": ".github/workflows/deploy.yml",
+        "stages": ["test", "build", "deploy"],
+        "requireApproval": ["staging", "production"]
+      },
+      "containerization": {
+        "enabled": true,
+        "registry": "docker.io",
+        "baseImage": "python:3.10-slim",
+        "multiStage": true
+      }
+    },
+    "monitoring": {
+      "metrics": {
+        "provider": "prometheus",
+        "endpoint": "/metrics",
+        "scrapeInterval": "15s"
+      },
+      "logging": {
+        "level": "INFO",
+        "format": "json",
+        "outputs": ["console", "file"],
+        "fileRotation": {
+          "maxSize": "100MB",
+          "maxFiles": 10
+        }
+      },
+      "tracing": {
+        "enabled": false,
+        "provider": "jaeger",
+        "samplingRate": 0.1
+      }
+    },
+    "security": {
+      "scanning": {
+        "enabled": true,
+        "tools": ["bandit", "safety", "trivy"],
+        "schedule": "on_commit",
+        "blockOnHigh": true
+      },
+      "secrets": {
+        "scanner": "detect-secrets",
+        "preventCommit": true,
+        "allowlist": [".kiro/config.json"]
+      }
+    },
+    "workspace": {
+      "structure": {
+        "src": "source code",
+        "tests": "test files",
+        "docs": "documentation",
+        "configs": "configuration files",
+        "scripts": "utility scripts",
+        "notebooks": "jupyter notebooks",
+        "data": "data storage",
+        "models": "model artifacts",
+        "deployment": "deployment configs"
+      },
+      "exclude": [
+        "**/__pycache__",
+        "**/*.pyc",
+        ".git",
+        ".venv",
+        "ml_env",
+        "data/raw/**",
+        "models/checkpoints/**",
+        "*.log"
+      ]
+    }
+  }

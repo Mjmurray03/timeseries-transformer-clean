@@ -1,0 +1,333 @@
+name: Deploy ML Model
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    name: Test and Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install poetry==1.7.1
+        poetry config virtualenvs.create false
+        poetry install --with dev
+
+    - name: Run linting
+      run: |
+        poetry run black --check src/ tests/
+        poetry run isort --check-only src/ tests/
+        poetry run flake8 src/ tests/
+
+    - name: Run type checking
+      run: |
+        poetry run mypy src/
+
+    - name: Run security checks
+      run: |
+        poetry run bandit -r src/
+        poetry run safety check
+
+    - name: Run tests with coverage
+      run: |
+        poetry run pytest tests/ \
+          --cov=src \
+          --cov-report=xml \
+          --cov-report=term \
+          --cov-fail-under=80 \
+          --junitxml=pytest.xml
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: true
+
+    - name: Upload test results
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: pytest
+        path: pytest.xml
+        reporter: java-junit
+
+  build:
+    name: Build and Push Container
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: deployment/docker/Dockerfile
+        target: inference
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
+  security-scan:
+    name: Security Scan
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ needs.build.outputs.image }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [test, build, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'staging'
+    environment: staging
+    timeout-minutes: 15
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig --name staging-cluster --region us-west-2
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Deploy with Helm
+      run: |
+        helm upgrade --install timeseries-transformer \
+          ./deployment/helm \
+          --namespace timeseries-transformer \
+          --create-namespace \
+          --values deployment/helm/values-staging.yaml \
+          --set image.tag=${{ github.sha }} \
+          --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+          --wait \
+          --timeout 600s
+
+    - name: Run smoke tests
+      run: |
+        kubectl wait --for=condition=ready pod -l app=timeseries-transformer -n timeseries-transformer --timeout=300s
+        kubectl port-forward -n timeseries-transformer svc/timeseries-transformer 8080:80 &
+        sleep 10
+        curl -f http://localhost:8080/health || exit 1
+        curl -f http://localhost:8080/ready || exit 1
+
+    - name: Post deployment notification
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#ml-deployments'
+        text: 'Staging deployment ${{ job.status }}: ${{ github.sha }}'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  deploy-production:
+    name: Deploy to Production
+    needs: [test, build, security-scan]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+    environment: production
+    timeout-minutes: 30
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig --name production-cluster --region us-west-2
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Pre-deployment validation
+      run: |
+        python deployment/ci-cd/validate-deployment.py \
+          --model-path models/latest \
+          --requirements deployment/validation-requirements.yaml
+
+    - name: Deploy with Helm (Canary)
+      run: |
+        # Deploy canary version (10% traffic)
+        helm upgrade --install timeseries-transformer-canary \
+          ./deployment/helm \
+          --namespace timeseries-transformer \
+          --create-namespace \
+          --values deployment/helm/values-prod.yaml \
+          --set replicaCount=1 \
+          --set image.tag=${{ github.ref_name || github.sha }} \
+          --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+          --set ingress.annotations."nginx\.ingress\.kubernetes\.io/canary"="true" \
+          --set ingress.annotations."nginx\.ingress\.kubernetes\.io/canary-weight"="10" \
+          --wait \
+          --timeout 600s
+
+    - name: Run canary tests
+      run: |
+        python deployment/ci-cd/canary-tests.py \
+          --endpoint https://api.timeseries-transformer.com \
+          --duration 300 \
+          --success-rate 99.5
+
+    - name: Full production deployment
+      run: |
+        # Deploy full production version
+        helm upgrade --install timeseries-transformer \
+          ./deployment/helm \
+          --namespace timeseries-transformer \
+          --values deployment/helm/values-prod.yaml \
+          --set image.tag=${{ github.ref_name || github.sha }} \
+          --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+          --wait \
+          --timeout 900s
+
+        # Remove canary deployment
+        helm uninstall timeseries-transformer-canary -n timeseries-transformer || true
+
+    - name: Wait for rollout
+      run: |
+        kubectl rollout status deployment/timeseries-transformer -n timeseries-transformer --timeout=600s
+
+    - name: Run production smoke tests
+      run: |
+        python deployment/ci-cd/production-tests.py \
+          --endpoint https://api.timeseries-transformer.com \
+          --test-suite comprehensive
+
+    - name: Update model registry
+      run: |
+        python scripts/update-model-registry.py \
+          --version ${{ github.ref_name || github.sha }} \
+          --status deployed \
+          --environment production
+
+    - name: Post deployment notification
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#ml-deployments'
+        text: |
+          Production deployment ${{ job.status }}: ${{ github.ref_name || github.sha }}
+          Deployment time: ${{ steps.deployment.outputs.time }}
+          Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name || github.sha }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  cleanup:
+    name: Cleanup Resources
+    needs: [deploy-staging, deploy-production]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Clean up old images
+      run: |
+        # Clean up old container images (keep last 10)
+        gh api repos/${{ github.repository }}/packages/container/timeseries-transformer/versions \
+          --jq '.[10:] | .[] | .id' | \
+          xargs -I {} gh api --method DELETE repos/${{ github.repository }}/packages/container/timeseries-transformer/versions/{}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

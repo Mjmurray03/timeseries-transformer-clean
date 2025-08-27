@@ -1,0 +1,215 @@
+# Default values for timeseries-transformer
+replicaCount: 3
+
+image:
+  repository: timeseries-transformer
+  pullPolicy: IfNotPresent
+  tag: "v1.0.0"
+
+imagePullSecrets:
+  - name: docker-registry-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "model-server"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8000
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+  hosts:
+    - host: api.timeseries-transformer.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: timeseries-transformer-tls
+      hosts:
+        - api.timeseries-transformer.com
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+    nvidia.com/gpu: 1
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+    nvidia.com/gpu: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: inference_latency_p99
+        target:
+          type: AverageValue
+          averageValue: "100m"
+
+nodeSelector:
+  accelerator: nvidia-tesla-t4
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - timeseries-transformer
+        topologyKey: kubernetes.io/hostname
+
+persistence:
+  enabled: true
+  storageClass: "fast-ssd"
+  accessMode: ReadWriteMany
+  size: 50Gi
+  existingClaim: ""
+
+modelConfig:
+  version: "v1.0.0"
+  architecture: "transformer-6layer"
+  batchSize: 32
+  maxBatchSize: 64
+  cacheEnabled: true
+  cacheTTL: 300
+  warmupSamples: 10
+
+env:
+  - name: MODEL_VERSION
+    value: "v1.0.0"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: CUDA_VISIBLE_DEVICES
+    value: "0"
+  - name: MAX_BATCH_SIZE
+    value: "32"
+  - name: PROMETHEUS_ENABLED
+    value: "true"
+
+secrets:
+  create: true
+  wandbApiKey: "your-wandb-api-key"
+  awsAccessKeyId: "your-aws-access-key"
+  awsSecretAccessKey: "your-aws-secret-key"
+  s3Bucket: "timeseries-models"
+  apiKey: "your-api-key"
+
+postgresql:
+  enabled: true
+  auth:
+    username: tsuser
+    password: tspass
+    database: timeseries
+  persistence:
+    enabled: true
+    size: 100Gi
+  metrics:
+    enabled: true
+
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+  replica:
+    replicaCount: 2
+  metrics:
+    enabled: true
+
+monitoring:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+      scrapeTimeout: 10s
+  grafana:
+    enabled: true
+    adminPassword: admin
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folder: /tmp/dashboards
+      provider:
+        name: model-dashboards
+        folder: "ML Models"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 30

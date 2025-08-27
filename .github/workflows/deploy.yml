@@ -362,11 +362,68 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-    - name: Clean up old images
-      run: |
-        # Clean up old container images (keep last 10)
-        gh api repos/${{ github.repository }}/packages/container/timeseries-transformer/versions \
-          --jq '.[10:] | .[] | .id' | \
-          xargs -I {} gh api --method DELETE repos/${{ github.repository }}/packages/container/timeseries-transformer/versions/{}
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Cleanup old container images (keep last 10)
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        OWNER: ${{ github.repository_owner }}
+        PACKAGE: timeseries-transformer
+        TOKEN: ${{ secrets.PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        
+        # Normalize line endings to prevent CRLF issues
+        find . -type f -name "*.sh" -print0 2>/dev/null | xargs -0 sed -i 's/\r$//' || true
+        
+        # Determine if owner is user or organization
+        OWNER_TYPE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/users/$OWNER" | jq -r '.type // "User"')
+        
+        if [[ "$OWNER_TYPE" == "Organization" ]]; then
+          API_BASE="https://api.github.com/orgs/$OWNER"
+        else
+          API_BASE="https://api.github.com/users/$OWNER"
+        fi
+        
+        API="$API_BASE/packages/container/$PACKAGE/versions?per_page=100"
+        
+        echo "Fetching container versions from: $API"
+        
+        # Get all version IDs sorted by created date (newest first)
+        IDS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" "$API" \
+          | jq -r 'sort_by(.created_at) | reverse | .[].id' 2>/dev/null || echo "")
+        
+        if [[ -z "$IDS" ]]; then
+          echo "No container versions found or API call failed"
+          exit 0
+        fi
+        
+        KEEP=10
+        i=0
+        deleted=0
+        
+        echo "Found versions, keeping newest $KEEP, deleting rest..."
+        
+        for id in $IDS; do
+          i=$((i+1))
+          if [ $i -le $KEEP ]; then
+            echo "Keeping version $id (rank $i)"
+            continue
+          fi
+          
+          echo "Deleting version $id (rank $i)"
+          
+          if curl -fsSL -X DELETE \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_BASE/packages/container/$PACKAGE/versions/$id" \
+            -o /dev/null; then
+            deleted=$((deleted+1))
+            echo "Successfully deleted version $id"
+          else
+            echo "Failed to delete version $id (may lack permissions or version already deleted)"
+          fi
+        done
+        
+        echo "Cleanup complete: deleted $deleted old versions, kept $KEEP newest versions"

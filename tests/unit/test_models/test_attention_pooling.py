@@ -76,6 +76,7 @@ class TestAttentionPooling:
     
     def test_attention_weights_with_mask(self, pooling_layer, sample_input, sample_mask):
         """Test attention weights respect mask"""
+        pooling_layer.eval()  # Set to eval mode to disable dropout
         output, attention_weights = pooling_layer(
             sample_input, mask=sample_mask, return_attention=True
         )
@@ -104,15 +105,19 @@ class TestAttentionPooling:
         d_model = 256
         sample_input = torch.randn(2, 10, d_model)
         
-        # Low temperature (sharper attention)
-        pooling_low_temp = AttentionPooling(d_model, temperature=0.1)
-        _, attn_low = pooling_low_temp(sample_input, return_attention=True)
+        # Use same pooling layer but modify temperature
+        pooling = AttentionPooling(d_model, temperature=1.0)
+        pooling.eval()  # Disable dropout for consistent results
         
-        # High temperature (smoother attention)
-        pooling_high_temp = AttentionPooling(d_model, temperature=10.0)
-        _, attn_high = pooling_high_temp(sample_input, return_attention=True)
+        # Test with low temperature (sharper attention)
+        pooling.temperature = 0.1
+        _, attn_low = pooling(sample_input, return_attention=True)
         
-        # Low temperature should have higher entropy (more focused)
+        # Test with high temperature (smoother attention)
+        pooling.temperature = 10.0
+        _, attn_high = pooling(sample_input, return_attention=True)
+        
+        # Low temperature should have lower entropy (more focused)
         entropy_low = -(attn_low * torch.log(attn_low + 1e-8)).sum(dim=-1).mean()
         entropy_high = -(attn_high * torch.log(attn_high + 1e-8)).sum(dim=-1).mean()
         

@@ -78,7 +78,8 @@ class AttentionPooling(nn.Module):
         
         # Compute attention scores
         scores = torch.bmm(query, keys.transpose(1, 2))  # (B, 1, L)
-        scores = scores.squeeze(1) / (math.sqrt(d_model) * self.temperature)  # (B, L)
+        scores = scores.squeeze(1) / math.sqrt(d_model)  # (B, L) - scaled dot-product attention
+        scores = scores / self.temperature  # Temperature scaling
         
         # Apply mask if provided
         if mask is not None:

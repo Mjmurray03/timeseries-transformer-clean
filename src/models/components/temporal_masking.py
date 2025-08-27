@@ -467,3 +467,7 @@ class FutureLeakageDetector:
             return not leakage_info['has_leakage']
         else:
             return leakage_info['max_leakage'] < self.tolerance
+
+
+# Alias for backward compatibility
+TemporalMasking = TemporalMaskingLayer

@@ -377,6 +377,10 @@ class TemporalPositionalEncoding(nn.Module):
         return self.dropout(pos_encoded)
 
 
+# Default alias for backward compatibility
+PositionalEncoding = SinusoidalPositionalEncoding
+
+
 def create_positional_encoding(
     encoding_type: str = "learned",
     d_model: int = 256,

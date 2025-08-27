@@ -1,11 +1,11 @@
 {
-  "timestamp": "2025-08-27T07:04:50.222211",
+  "timestamp": "2025-08-27T09:02:31.489846",
   "overall_success": true,
-  "total_duration_seconds": 5.351747274398804,
+  "total_duration_seconds": 6.968390941619873,
   "stages": {
     "1_data_loading": {
       "success": true,
-      "duration_seconds": 0.07501363754272461,
+      "duration_seconds": 0.09359622001647949,
       "metrics": {
         "file_path": "data\\raw\\AAPL\\2020-07-28_2025-08-25.parquet",
         "data_shape": [
@@ -31,7 +31,7 @@
     },
     "2_feature_engineering": {
       "success": true,
-      "duration_seconds": 0.021494388580322266,
+      "duration_seconds": 0.030640125274658203,
       "metrics": {
         "original_columns": 6,
         "feature_columns": 31,
@@ -81,7 +81,7 @@
     },
     "3_dataset_creation": {
       "success": true,
-      "duration_seconds": 0.014076948165893555,
+      "duration_seconds": 0.03109908103942871,
       "metrics": {
         "total_sequences": 1013,
         "sequence_shape": [
@@ -111,7 +111,7 @@
     },
     "4_model_initialization": {
       "success": true,
-      "duration_seconds": 0.10204076766967773,
+      "duration_seconds": 0.0851132869720459,
       "metrics": {
         "input_dim": 30,
         "model_architecture": "TimeSeriesTransformer",
@@ -139,7 +139,7 @@
     },
     "5_training_configuration": {
       "success": true,
-      "duration_seconds": 0.0007300376892089844,
+      "duration_seconds": 0.0005998611450195312,
       "metrics": {
         "num_epochs": 1,
         "batch_size": 16,
@@ -154,28 +154,28 @@
         "deterministic": true,
         "seed": 42,
         "validation_passed": true,
-        "total_config_parameters": 26
+        "total_config_parameters": 30
       },
       "error": null
     },
     "6_training_orchestrator": {
       "success": true,
-      "duration_seconds": 5.133082151412964,
+      "duration_seconds": 6.7209389209747314,
       "metrics": {
         "orchestrator_initialized": true,
         "train_batches_processed": 3,
         "val_batches_processed": 2,
         "train_losses": [
-          1440.181640625,
-          1786.849853515625,
-          1632.9239501953125
+          2266.18798828125,
+          1733.354248046875,
+          731.8189697265625
         ],
         "val_losses": [
-          14012.4326171875,
-          14047.2841796875
+          13816.5908203125,
+          13847.9404296875
         ],
-        "avg_train_loss": 1619.9851481119792,
-        "avg_val_loss": 14029.8583984375,
+        "avg_train_loss": 1577.1204020182292,
+        "avg_val_loss": 13832.265625,
         "loss_is_finite": true,
         "gradients_computed": true,
         "optimizer_steps": 3
@@ -184,7 +184,7 @@
     },
     "7_verification": {
       "success": true,
-      "duration_seconds": 0.0039713382720947266,
+      "duration_seconds": 0.004570960998535156,
       "metrics": {
         "verifications": {
           "data_flow": {

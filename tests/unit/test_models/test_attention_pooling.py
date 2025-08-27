@@ -60,6 +60,7 @@ class TestAttentionPooling:
     
     def test_return_attention_weights(self, pooling_layer, sample_input):
         """Test returning attention weights"""
+        pooling_layer.eval()  # Set to eval mode to disable dropout
         output, attention_weights = pooling_layer(
             sample_input, return_attention=True
         )

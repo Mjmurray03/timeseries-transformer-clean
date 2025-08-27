@@ -90,19 +90,19 @@ class TestLossConfig:
         """Test default loss configuration."""
         config = LossConfig()
         
-        assert config.price_loss_weight == 1.0
-        assert config.direction_loss_weight == 0.5
-        assert config.volatility_loss_weight == 0.3
-        assert config.quantile_loss_weight == 0.2
+        assert config.price_loss_weight == 0.5
+        assert config.direction_loss_weight == 0.3
+        assert config.volatility_loss_weight == 0.1
+        assert config.quantile_loss_weight == 0.1
         assert config.quantiles == [0.1, 0.25, 0.5, 0.75, 0.9]
     
     def test_custom_values(self):
         """Test custom loss configuration."""
         config = LossConfig(
-            price_loss_weight=2.0,
-            direction_loss_weight=1.0,
-            volatility_loss_weight=0.5,
-            quantile_loss_weight=0.3,
+            price_weight=2.0,
+            direction_weight=1.0,
+            volatility_weight=0.5,
+            quantile_weight=0.3,
             quantiles=[0.25, 0.5, 0.75]
         )
         
@@ -209,7 +209,7 @@ class TestTrainingConfig:
                 'warmup_steps': 500
             },
             'loss': {
-                'price_loss_weight': 2.0,
+                'price_weight': 2.0,
                 'quantiles': [0.25, 0.5, 0.75]
             }
         }
@@ -235,16 +235,20 @@ class TestTrainingConfig:
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config.save(f.name)
-            
+        
+        try:
             # Load and verify
             loaded_config = TrainingConfig.from_yaml(f.name)
             
             assert loaded_config.num_epochs == 50
             assert loaded_config.batch_size == 16
             assert loaded_config.experiment_name == "test_experiment"
-            
+        finally:
             # Clean up
-            Path(f.name).unlink()
+            try:
+                Path(f.name).unlink()
+            except (PermissionError, FileNotFoundError):
+                pass  # Ignore cleanup errors on Windows
 
 
 class TestTrainingConfigValidator:

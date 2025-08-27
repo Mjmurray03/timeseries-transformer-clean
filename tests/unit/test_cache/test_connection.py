@@ -127,13 +127,18 @@ class TestRedisConnectionManager:
                 assert client == mock_client
     
     @patch('redis.Redis')
-    def test_health_check_success(self, mock_redis, connection_manager):
+    @patch('time.time')
+    def test_health_check_success(self, mock_time, mock_redis, connection_manager):
         """Test successful health check"""
+        # Setup mock time to return consistent value
+        mock_time.return_value = 1234567890
+        test_value = "1234567890"
+        
         # Setup mock
         mock_client = Mock()
         mock_client.ping.return_value = True
         mock_client.setex.return_value = True
-        mock_client.get.return_value = "test_value"
+        mock_client.get.return_value = test_value  # Return the same value that will be set
         mock_client.delete.return_value = 1
         mock_redis.return_value = mock_client
         
@@ -142,7 +147,7 @@ class TestRedisConnectionManager:
         
         assert result is True
         assert connection_manager._is_healthy is True
-        mock_client.ping.assert_called_once()
+        assert mock_client.ping.call_count == 2  # Called once in get_connection, once in health_check
         mock_client.setex.assert_called_once()
         mock_client.get.assert_called_once()
         mock_client.delete.assert_called_once()
@@ -163,13 +168,18 @@ class TestRedisConnectionManager:
     
     @pytest.mark.asyncio
     @patch('redis.asyncio.Redis')
-    async def test_async_health_check_success(self, mock_redis, connection_manager):
+    @patch('time.time')
+    async def test_async_health_check_success(self, mock_time, mock_redis, connection_manager):
         """Test successful async health check"""
+        # Setup mock time to return consistent value
+        mock_time.return_value = 1234567890
+        test_value = "1234567890"
+        
         # Setup mock
         mock_client = AsyncMock()
         mock_client.ping.return_value = True
         mock_client.setex.return_value = True
-        mock_client.get.return_value = "async_test_value"
+        mock_client.get.return_value = test_value  # Return the same value that will be set
         mock_client.delete.return_value = 1
         mock_redis.return_value = mock_client
         
@@ -178,7 +188,7 @@ class TestRedisConnectionManager:
         
         assert result is True
         assert connection_manager._is_healthy is True
-        mock_client.ping.assert_called_once()
+        assert mock_client.ping.call_count == 2  # Called once in get_async_connection, once in health_check
         mock_client.setex.assert_called_once()
         mock_client.get.assert_called_once()
         mock_client.delete.assert_called_once()

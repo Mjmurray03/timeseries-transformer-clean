@@ -174,6 +174,15 @@ class TrainingConfig:
         scheduler_config = config_dict.pop('scheduler', {})
         loss_config = config_dict.pop('loss', {})
         
+        # Convert lists back to tuples where needed
+        if 'betas' in optimizer_config and isinstance(optimizer_config['betas'], list):
+            optimizer_config['betas'] = tuple(optimizer_config['betas'])
+        
+        # Filter out legacy fields from loss_config that are computed in __post_init__
+        legacy_fields = ['price_loss_weight', 'direction_loss_weight', 'volatility_loss_weight', 'quantile_loss_weight']
+        for field in legacy_fields:
+            loss_config.pop(field, None)
+        
         # Create nested config objects
         optimizer = OptimizerConfig(**optimizer_config)
         scheduler = SchedulerConfig(**scheduler_config)
@@ -453,8 +462,17 @@ class TrainingConfig:
         config_dict = {}
         
         for key, value in self.__dict__.items():
-            if isinstance(value, (OptimizerConfig, SchedulerConfig, LossConfig)):
-                config_dict[key] = value.__dict__
+            if isinstance(value, (OptimizerConfig, SchedulerConfig, LossConfig, ModelConfig)):
+                # Recursively convert nested configs to dict
+                nested_dict = {}
+                for nested_key, nested_value in value.__dict__.items():
+                    if isinstance(nested_value, tuple):
+                        nested_dict[nested_key] = list(nested_value)  # Convert tuples to lists for YAML
+                    else:
+                        nested_dict[nested_key] = nested_value
+                config_dict[key] = nested_dict
+            elif isinstance(value, tuple):
+                config_dict[key] = list(value)  # Convert tuples to lists for YAML
             else:
                 config_dict[key] = value
         

@@ -536,3 +536,7 @@ class TrainingOrchestrator:
         
         logger.info(f"Loaded checkpoint from epoch {self.current_epoch}")
         return checkpoint
+
+
+# Alias for backward compatibility
+Trainer = TrainingOrchestrator

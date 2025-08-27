@@ -527,6 +527,10 @@ class MultiTaskPredictionHead(nn.Module):
         return predictions
 
 
+# Alias for backward compatibility
+PredictionHeads = MultiTaskPredictionHead
+
+
 def create_prediction_head(
     head_type: str = "multi_task",
     d_model: int = 256,

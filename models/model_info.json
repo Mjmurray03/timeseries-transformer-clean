@@ -1,0 +1,22 @@
+{
+  "architecture": "TimeSeriesTransformer",
+  "parameters": 3178756,
+  "config": {
+    "architecture": "TimeSeriesTransformer",
+    "input_dim": 10,
+    "hidden_dim": 256,
+    "num_heads": 8,
+    "num_layers": 4,
+    "max_seq_length": 60,
+    "output_dim": 3,
+    "dropout": 0.1,
+    "total_parameters": 3178756
+  },
+  "metrics": {
+    "MSE": 0.06518489867448807,
+    "RMSE": 0.25531333684921265,
+    "MAE": 0.25531333684921265,
+    "MAPE": Infinity,
+    "R2": 0.0
+  }
+}

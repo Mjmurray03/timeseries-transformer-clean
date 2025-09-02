@@ -297,5 +297,31 @@ tensorboard/
 !artifacts/.gitkeep
 nul
 
-# local dev secrets
-.claude/settings.local.json
+# Project specific model files
+*.pt
+*.pth
+scalers/*.pkl
+
+# Result files (generated dynamically)
+results/figures/
+results/metrics/
+results/backtest/
+plots/
+*.png
+*.jpg
+*.jpeg
+
+# Additional project ignores
+scaler_config.json
+
+# Claude settings (contains local paths/secrets)
+.claude/
+
+# Large binary files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+vmware_transfer/
+venv_gpu/

@@ -3,8 +3,9 @@
 Debug script to see what yfinance actually returns.
 """
 
-import yfinance as yf
 from datetime import date
+
+import yfinance as yf
 
 # Download some data to see the structure
 print("Downloading AAPL data...")
@@ -24,12 +25,12 @@ print(data.dtypes)
 
 print("\nChecking for MultiIndex:")
 print(f"Columns is MultiIndex: {hasattr(data.columns, 'levels')}")
-if hasattr(data.columns, 'levels'):
+if hasattr(data.columns, "levels"):
     print(f"Column levels: {data.columns.levels}")
 
 print("\nTrying to access 'Close' column:")
 try:
-    close_data = data['Close']
+    close_data = data["Close"]
     print(f"Close data type: {type(close_data)}")
     print(f"Close data shape: {close_data.shape}")
     print(f"Close data empty: {close_data.empty}")
@@ -38,8 +39,8 @@ except Exception as e:
 
 print("\nTrying boolean operations:")
 try:
-    if 'Close' in data.columns:
-        result = data['Close'] > 100
+    if "Close" in data.columns:
+        result = data["Close"] > 100
         print(f"Boolean operation result type: {type(result)}")
         print(f"Any values > 100: {result.any()}")
 except Exception as e:

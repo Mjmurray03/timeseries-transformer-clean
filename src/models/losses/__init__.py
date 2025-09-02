@@ -6,28 +6,26 @@ transformer, including composite losses, quantile losses, and directional losses
 """
 
 from .composite_loss import CompositeLoss
-from .quantile_loss import QuantileLoss, MultiQuantileLoss, AdaptiveQuantileLoss
 from .directional_loss import (
+    BalancedDirectionalLoss,
     DirectionalLoss,
     FocalLoss,
     HingeLoss,
     MultiHorizonDirectionalLoss,
-    BalancedDirectionalLoss
 )
+from .quantile_loss import AdaptiveQuantileLoss, MultiQuantileLoss, QuantileLoss
 
 __all__ = [
     # Main composite loss
-    'CompositeLoss',
-    
+    "CompositeLoss",
     # Quantile losses
-    'QuantileLoss',
-    'MultiQuantileLoss', 
-    'AdaptiveQuantileLoss',
-    
+    "QuantileLoss",
+    "MultiQuantileLoss",
+    "AdaptiveQuantileLoss",
     # Directional losses
-    'DirectionalLoss',
-    'FocalLoss',
-    'HingeLoss',
-    'MultiHorizonDirectionalLoss',
-    'BalancedDirectionalLoss',
+    "DirectionalLoss",
+    "FocalLoss",
+    "HingeLoss",
+    "MultiHorizonDirectionalLoss",
+    "BalancedDirectionalLoss",
 ]

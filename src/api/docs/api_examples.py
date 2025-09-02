@@ -5,65 +5,62 @@ This module contains comprehensive examples for using the Time-Series Transforme
 including request/response examples, error handling, and best practices.
 """
 
-import json
 import asyncio
-import httpx
+import json
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
+import httpx
 
 
 class APIClient:
     """Example API client implementation"""
-    
+
     def __init__(self, base_url: str = "http://localhost:8000", api_key: str = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.client = httpx.AsyncClient(timeout=30.0)
-    
+
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with authentication"""
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
-    
-    async def predict_single(self, ticker: str, features: List[List[float]], horizon: int = 5) -> Dict[str, Any]:
+
+    async def predict_single(
+        self, ticker: str, features: List[List[float]], horizon: int = 5
+    ) -> Dict[str, Any]:
         """
         Make a single prediction request
-        
+
         Example usage:
         ```python
         client = APIClient(api_key="your_api_key_here")
-        
+
         # Prepare 60 time steps with 7 features each
         features = [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0] for _ in range(60)]
-        
+
         result = await client.predict_single("AAPL", features, horizon=5)
         print(f"Prediction: {result['prediction']}")
         ```
         """
-        payload = {
-            "ticker": ticker,
-            "features": features,
-            "horizon": horizon
-        }
-        
+        payload = {"ticker": ticker, "features": features, "horizon": horizon}
+
         response = await self.client.post(
-            f"{self.base_url}/predict",
-            json=payload,
-            headers=self._get_headers()
+            f"{self.base_url}/predict", json=payload, headers=self._get_headers()
         )
-        
+
         if response.status_code != 200:
             error_data = response.json()
             raise Exception(f"API Error: {error_data}")
-        
+
         return response.json()
-    
+
     async def predict_batch(self, requests: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Make a batch prediction request
-        
+
         Example usage:
         ```python
         requests = [
@@ -73,48 +70,43 @@ class APIClient:
                 "horizon": 5
             },
             {
-                "ticker": "GOOGL", 
+                "ticker": "GOOGL",
                 "features": [[2.0] * 7] * 60,
                 "horizon": 3
             }
         ]
-        
+
         result = await client.predict_batch(requests)
         print(f"Batch predictions: {len(result['predictions'])}")
         ```
         """
         payload = {"requests": requests}
-        
+
         response = await self.client.post(
-            f"{self.base_url}/batch_predict",
-            json=payload,
-            headers=self._get_headers()
+            f"{self.base_url}/batch_predict", json=payload, headers=self._get_headers()
         )
-        
+
         if response.status_code != 200:
             error_data = response.json()
             raise Exception(f"API Error: {error_data}")
-        
+
         return response.json()
-    
+
     async def get_health(self) -> Dict[str, Any]:
         """Get API health status"""
         response = await self.client.get(f"{self.base_url}/health")
         return response.json()
-    
+
     async def get_model_info(self) -> Dict[str, Any]:
         """Get model information"""
-        response = await self.client.get(
-            f"{self.base_url}/model_info",
-            headers=self._get_headers()
-        )
+        response = await self.client.get(f"{self.base_url}/model_info", headers=self._get_headers())
         return response.json()
-    
+
     async def get_metrics(self) -> Dict[str, Any]:
         """Get API metrics"""
         response = await self.client.get(f"{self.base_url}/metrics/summary")
         return response.json()
-    
+
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()
@@ -125,34 +117,52 @@ EXAMPLE_REQUESTS = {
     "single_prediction": {
         "ticker": "AAPL",
         "features": [
-            [100.5, 101.2, 99.8, 100.1, 1000000, 0.02, 0.5],  # Day 1: [open, high, low, close, volume, return, volatility]
+            [
+                100.5,
+                101.2,
+                99.8,
+                100.1,
+                1000000,
+                0.02,
+                0.5,
+            ],  # Day 1: [open, high, low, close, volume, return, volatility]
             [100.1, 102.0, 100.0, 101.5, 1200000, 0.014, 0.45],  # Day 2
             [101.5, 103.2, 101.0, 102.8, 1100000, 0.013, 0.48],  # Day 3
             # ... 57 more time steps (total 60)
-        ] + [[102.0 + i * 0.1, 103.0 + i * 0.1, 101.0 + i * 0.1, 102.5 + i * 0.1, 
-              1000000 + i * 10000, 0.01 + i * 0.001, 0.5 + i * 0.01] for i in range(57)],
-        "horizon": 5
+        ]
+        + [
+            [
+                102.0 + i * 0.1,
+                103.0 + i * 0.1,
+                101.0 + i * 0.1,
+                102.5 + i * 0.1,
+                1000000 + i * 10000,
+                0.01 + i * 0.001,
+                0.5 + i * 0.01,
+            ]
+            for i in range(57)
+        ],
+        "horizon": 5,
     },
-    
     "batch_prediction": {
         "requests": [
             {
                 "ticker": "AAPL",
                 "features": [[100.0 + i * 0.1] * 7 for i in range(60)],
-                "horizon": 5
+                "horizon": 5,
             },
             {
                 "ticker": "GOOGL",
                 "features": [[150.0 + i * 0.2] * 7 for i in range(60)],
-                "horizon": 3
+                "horizon": 3,
             },
             {
                 "ticker": "MSFT",
                 "features": [[200.0 + i * 0.15] * 7 for i in range(60)],
-                "horizon": 7
-            }
+                "horizon": 7,
+            },
         ]
-    }
+    },
 }
 
 EXAMPLE_RESPONSES = {
@@ -162,13 +172,13 @@ EXAMPLE_RESPONSES = {
             "68%": {
                 "lower": [102.5, 103.1, 103.4, 103.8, 104.3],
                 "upper": [103.9, 104.5, 104.8, 105.2, 105.7],
-                "confidence_level": 0.68
+                "confidence_level": 0.68,
             },
             "95%": {
                 "lower": [101.8, 102.4, 102.7, 103.1, 103.6],
                 "upper": [104.6, 105.2, 105.5, 105.9, 106.4],
-                "confidence_level": 0.95
-            }
+                "confidence_level": 0.95,
+            },
         },
         "attention_weights": [
             [0.1, 0.15, 0.2, 0.18, 0.12, 0.15, 0.1],  # Attention for each feature at each time step
@@ -179,10 +189,9 @@ EXAMPLE_RESPONSES = {
             "inference_time_ms": 45.2,
             "timestamp": "2024-01-15T10:30:00Z",
             "cache_hit": False,
-            "request_id": "req_12345"
-        }
+            "request_id": "req_12345",
+        },
     },
-    
     "batch_prediction": {
         "predictions": [
             # Individual prediction responses for each request
@@ -194,36 +203,25 @@ EXAMPLE_RESPONSES = {
             "failed_predictions": 0,
             "batch_processing_time_ms": 125.7,
             "timestamp": "2024-01-15T10:30:00Z",
-            "errors": None
-        }
+            "errors": None,
+        },
     },
-    
     "health_check": {
         "status": "healthy",
         "timestamp": "2024-01-15T10:30:00Z",
         "version": "1.0.0",
         "uptime_seconds": 86400,
-        "model_status": {
-            "model_primary": "healthy"
-        },
-        "dependencies": {
-            "redis": "healthy",
-            "prediction_cache": "healthy"
-        }
+        "model_status": {"model_primary": "healthy"},
+        "dependencies": {"redis": "healthy", "prediction_cache": "healthy"},
     },
-    
     "model_info": {
         "model_version": "v1.0.0",
         "architecture": "transformer",
         "parameters": 12500000,
         "device": "cuda:0",
         "loaded_at": "2024-01-15T09:00:00Z",
-        "training_metrics": {
-            "final_loss": 0.0023,
-            "validation_rmse": 0.85,
-            "validation_mae": 0.67
-        }
-    }
+        "training_metrics": {"final_loss": 0.0023, "validation_rmse": 0.85, "validation_mae": 0.67},
+    },
 }
 
 ERROR_EXAMPLES = {
@@ -237,39 +235,35 @@ ERROR_EXAMPLES = {
                         "field": "features",
                         "message": "Features must have exactly 60 time steps",
                         "type": "value_error",
-                        "input": "[[1.0, 2.0]]"  # Only 1 time step provided
+                        "input": "[[1.0, 2.0]]",  # Only 1 time step provided
                     }
                 ]
             },
-            "request_id": "req_error_123"
+            "request_id": "req_error_123",
         },
-        "timestamp": "2024-01-15T10:30:00Z"
+        "timestamp": "2024-01-15T10:30:00Z",
     },
-    
     "rate_limit_error": {
         "error": {
             "error_code": "RATE_LIMIT_ERROR",
             "message": "Rate limit exceeded",
-            "details": {
-                "retry_after_seconds": 60
-            },
-            "request_id": "req_rate_limit_456"
+            "details": {"retry_after_seconds": 60},
+            "request_id": "req_rate_limit_456",
         },
-        "timestamp": "2024-01-15T10:30:00Z"
+        "timestamp": "2024-01-15T10:30:00Z",
     },
-    
     "authentication_error": {
         "error": {
             "error_code": "AUTHENTICATION_ERROR",
             "message": "Invalid API key",
-            "request_id": "req_auth_789"
+            "request_id": "req_auth_789",
         },
-        "timestamp": "2024-01-15T10:30:00Z"
-    }
+        "timestamp": "2024-01-15T10:30:00Z",
+    },
 }
 
 CURL_EXAMPLES = {
-    "single_prediction": '''
+    "single_prediction": """
 # Single Prediction Request
 curl -X POST "http://localhost:8000/predict" \\
      -H "Content-Type: application/json" \\
@@ -282,9 +276,8 @@ curl -X POST "http://localhost:8000/predict" \\
        ],
        "horizon": 5
      }'
-    ''',
-    
-    "batch_prediction": '''
+    """,
+    "batch_prediction": """
 # Batch Prediction Request  
 curl -X POST "http://localhost:8000/batch_predict" \\
      -H "Content-Type: application/json" \\
@@ -303,18 +296,16 @@ curl -X POST "http://localhost:8000/batch_predict" \\
          }
        ]
      }'
-    ''',
-    
-    "health_check": '''
+    """,
+    "health_check": """
 # Health Check
 curl -X GET "http://localhost:8000/health"
-    ''',
-    
-    "model_info": '''
+    """,
+    "model_info": """
 # Model Information
 curl -X GET "http://localhost:8000/model_info" \\
      -H "Authorization: Bearer your_api_key_here"
-    '''
+    """,
 }
 
 PYTHON_EXAMPLES = {
@@ -368,7 +359,6 @@ async def predict_stock_price():
 # Run the example
 asyncio.run(predict_stock_price())
     ''',
-    
     "batch_processing": '''
 async def process_multiple_stocks():
     """Batch processing example"""
@@ -409,7 +399,6 @@ async def process_multiple_stocks():
 
 asyncio.run(process_multiple_stocks())
     ''',
-    
     "error_handling": '''
 async def handle_api_errors():
     """Error handling example"""
@@ -448,28 +437,28 @@ async def handle_api_errors():
         await client.close()
 
 asyncio.run(handle_api_errors())
-    '''
+    ''',
 }
 
 
 def print_documentation():
     """Print comprehensive API documentation"""
-    
+
     print("=" * 80)
     print("TIME-SERIES TRANSFORMER API DOCUMENTATION")
     print("=" * 80)
-    
+
     print("\n📋 OVERVIEW")
     print("-" * 40)
     print("Production-ready API for stock price prediction using transformer models.")
     print("Features: Real-time predictions, batch processing, caching, monitoring.")
-    
+
     print("\n🚀 QUICK START")
     print("-" * 40)
     print("1. Install dependencies: pip install -r requirements-api.txt")
     print("2. Start server: uvicorn src.api.main:app --reload")
     print("3. Access docs: http://localhost:8000/docs")
-    
+
     print("\n📊 ENDPOINTS")
     print("-" * 40)
     print("POST /predict          - Single prediction")
@@ -480,22 +469,22 @@ def print_documentation():
     print("GET  /metrics         - Prometheus metrics")
     print("GET  /metrics/summary - Metrics summary")
     print("WS   /ws/stream/{ticker} - WebSocket streaming")
-    
+
     print("\n🔑 AUTHENTICATION")
     print("-" * 40)
     print("API Key required for prediction endpoints:")
     print("Header: Authorization: Bearer your_api_key_here")
-    
+
     print("\n⚡ RATE LIMITS")
     print("-" * 40)
     print("Default: 100 requests per minute per API key")
     print("Headers: X-RateLimit-Limit, X-RateLimit-Remaining")
-    
+
     print("\n💾 CACHING")
     print("-" * 40)
     print("Predictions cached for 5 minutes (Redis)")
     print("Cache status in response metadata")
-    
+
     print("\n📈 MONITORING")
     print("-" * 40)
     print("Prometheus metrics at /metrics")
@@ -505,14 +494,14 @@ def print_documentation():
 
 if __name__ == "__main__":
     print_documentation()
-    
+
     # Example usage
     print("\n" + "=" * 80)
     print("EXAMPLE USAGE")
     print("=" * 80)
-    
+
     print("\n🐍 PYTHON EXAMPLE:")
     print(PYTHON_EXAMPLES["basic_usage"])
-    
+
     print("\n🌐 CURL EXAMPLE:")
     print(CURL_EXAMPLES["single_prediction"])

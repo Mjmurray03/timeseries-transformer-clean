@@ -1,6 +1,7 @@
 ﻿import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
 
 RAW = Path("data/raw")
@@ -8,7 +9,8 @@ OUT = Path("scalers")
 OUT.mkdir(parents=True, exist_ok=True)
 
 # Choose the columns your model expects
-FEATURES = ["Open","High","Low","Close","Volume"]
+FEATURES = ["Open", "High", "Low", "Close", "Volume"]
+
 
 def make_scaler(df: pd.DataFrame):
     stats = {}
@@ -28,6 +30,7 @@ def make_scaler(df: pd.DataFrame):
         "stats": stats,
         "method": "zscore",  # informational
     }
+
 
 def main():
     files = sorted(RAW.glob("*.parquet"))
@@ -50,6 +53,7 @@ def main():
         print(f"[ok]   wrote {out.name}")
     print(f"\nDone. Created {made} scaler file(s) in {OUT}")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

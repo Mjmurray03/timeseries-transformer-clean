@@ -12,21 +12,21 @@ from pathlib import Path
 def validate_python_syntax(file_path: str) -> bool:
     """
     Validate Python syntax of a file.
-    
+
     Args:
         file_path: Path to Python file
-        
+
     Returns:
         bool: True if syntax is valid
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
-        
+
         # Parse the AST
         ast.parse(source)
         return True
-        
+
     except SyntaxError as e:
         print(f"Syntax error in {file_path}: {e}")
         return False
@@ -37,19 +37,19 @@ def validate_python_syntax(file_path: str) -> bool:
 
 def main():
     """Validate syntax of all model component files."""
-    
+
     # Files to validate
     files_to_check = [
         "src/models/components/attention_pooling.py",
-        "src/models/components/interpretable_attention.py", 
+        "src/models/components/interpretable_attention.py",
         "src/models/components/temporal_masking.py",
         "tests/unit/test_models/test_attention_pooling.py",
         "tests/unit/test_models/test_interpretable_attention.py",
-        "tests/unit/test_models/test_temporal_masking.py"
+        "tests/unit/test_models/test_temporal_masking.py",
     ]
-    
+
     all_valid = True
-    
+
     for file_path in files_to_check:
         if os.path.exists(file_path):
             print(f"Validating {file_path}...")
@@ -61,7 +61,7 @@ def main():
         else:
             print(f"⚠ {file_path} - File not found")
             all_valid = False
-    
+
     if all_valid:
         print("\n✓ All files have valid Python syntax!")
         return 0

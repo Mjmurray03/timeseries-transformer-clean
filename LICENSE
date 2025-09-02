@@ -1,0 +1,59 @@
+MIT License
+
+Copyright (c) 2024 Time-Series Transformer Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+ADDITIONAL DISCLAIMERS FOR FINANCIAL SOFTWARE
+================================================================================
+
+EDUCATIONAL PURPOSE ONLY: This software is designed for educational and 
+research purposes only. It is NOT intended for actual trading or investment 
+decisions.
+
+NO FINANCIAL ADVICE: This software does not constitute financial advice. 
+The creators and contributors are not licensed financial advisors and do not 
+provide investment recommendations.
+
+NO WARRANTY OF PERFORMANCE: Past performance does not guarantee future results. 
+Trading and investing in financial markets involves substantial risk of loss 
+and is not suitable for all investors.
+
+USE AT YOUR OWN RISK: You are solely responsible for any trading decisions 
+made using this software. The creators and contributors disclaim all liability 
+for any losses incurred through the use of this software.
+
+MARKET RISKS: Financial markets can be volatile and unpredictable. Market 
+conditions can change rapidly and may result in substantial losses.
+
+REGULATORY COMPLIANCE: Users are responsible for ensuring compliance with all 
+applicable laws and regulations in their jurisdiction regarding automated 
+trading and financial software.
+
+DATA ACCURACY: While efforts have been made to ensure data accuracy, the 
+creators and contributors do not guarantee the accuracy, completeness, or 
+timeliness of any market data or analysis provided by this software.
+
+THIRD-PARTY SERVICES: This software may integrate with third-party services 
+(APIs, data providers, etc.). The creators are not responsible for the 
+availability, accuracy, or terms of service of third-party providers.
+
+By using this software, you acknowledge that you have read, understood, and 
+agree to these terms and disclaimers.

@@ -290,21 +290,16 @@ If you use this code for research or education, please cite:
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
-
-- University of Arkansas Walton College for GPU resources
-- Professor Zach Steelman for guidance
-- Open source community for foundational libraries
 
 ## 📧 Contact
 
-Your Name - [your.email@uark.edu](mailto:your.email@uark.edu)
+Michael Murray - mjm085@uark.edu
 
-Project Link: [https://github.com/yourusername/timeseries-transformer](https://github.com/yourusername/timeseries-transformer)
+Project Link: [https://github.com/Mjmurray03/timeseries-transformer](https://github.com/Mjmurray03/timeseries-transformer)
 
 ---
 
-**Final Thought**: This project proves that building the infrastructure is often more valuable than achieving marginal model improvements. The complete MLOps pipeline, professional documentation, and honest failure analysis make this repository a learning resource worth more than a slightly profitable trading algorithm.
+**Final Thought**: This project proves that building the infrastructure is often more valuable than achieving marginal model improvements. The complete MLOps pipeline, professional documentation, and evaluation/analysis make this repository a great learning resource.
 
 ---
 

@@ -296,3 +296,6 @@ tensorboard/
 !logs/.gitkeep
 !artifacts/.gitkeep
 nul
+
+# local dev secrets
+.claude/settings.local.json

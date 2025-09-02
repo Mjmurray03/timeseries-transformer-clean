@@ -1,0 +1,34 @@
+{
+  "AAPL": {
+    "status": "MISSING",
+    "path": "data\\raw\\AAPL.parquet"
+  },
+  "MSFT": {
+    "status": "MISSING",
+    "path": "data\\raw\\MSFT.parquet"
+  },
+  "AMZN": {
+    "status": "MISSING",
+    "path": "data\\raw\\AMZN.parquet"
+  },
+  "GOOG": {
+    "status": "MISSING",
+    "path": "data\\raw\\GOOG.parquet"
+  },
+  "META": {
+    "status": "MISSING",
+    "path": "data\\raw\\META.parquet"
+  },
+  "NVDA": {
+    "status": "MISSING",
+    "path": "data\\raw\\NVDA.parquet"
+  },
+  "TSLA": {
+    "status": "MISSING",
+    "path": "data\\raw\\TSLA.parquet"
+  },
+  "NFLX": {
+    "status": "MISSING",
+    "path": "data\\raw\\NFLX.parquet"
+  }
+}

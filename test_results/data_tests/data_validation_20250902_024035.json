@@ -1,0 +1,162 @@
+{
+  "AAPL": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.07
+  },
+  "MSFT": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.07
+  },
+  "AMZN": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.06
+  },
+  "GOOG": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.07
+  },
+  "META": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.07
+  },
+  "NVDA": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.07
+  },
+  "TSLA": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.06
+  },
+  "NFLX": {
+    "status": "OK",
+    "rows": 1253,
+    "columns": [
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Dividends",
+      "StockSplits"
+    ],
+    "date_range": {
+      "start": "2020-09-03",
+      "end": "2025-08-29"
+    },
+    "missing_columns": [],
+    "nan_counts": {},
+    "file_size_mb": 0.06
+  }
+}

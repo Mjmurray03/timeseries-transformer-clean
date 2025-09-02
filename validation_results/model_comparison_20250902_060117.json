@@ -1,0 +1,87 @@
+{
+  "timestamp": "2025-09-02T06:01:16.833043",
+  "device": "cuda",
+  "models": {
+    "AAPL_best": {
+      "model_path": "models\\AAPL_best.pt",
+      "model_type": "single_stock",
+      "tickers": [
+        "best.pt"
+      ],
+      "training_epoch": "Unknown",
+      "training_val_loss": null,
+      "training_val_rmse": null,
+      "model_size_mb": 13.04688549041748,
+      "test_metrics": {}
+    },
+    "GOOG_best": {
+      "model_path": "models\\GOOG_best.pt",
+      "model_type": "single_stock",
+      "tickers": [
+        "best.pt"
+      ],
+      "training_epoch": "Unknown",
+      "training_val_loss": null,
+      "training_val_rmse": null,
+      "model_size_mb": 13.04688549041748,
+      "test_metrics": {}
+    },
+    "model_AAPL_best": {
+      "model_path": "models\\model_AAPL_best.pt",
+      "model_type": "single_stock",
+      "tickers": [
+        "AAPL"
+      ],
+      "training_epoch": 9,
+      "training_val_loss": null,
+      "training_val_rmse": null,
+      "model_size_mb": 9.760844230651855,
+      "test_metrics": {}
+    },
+    "model_multi_3stocks_best": {
+      "model_path": "models\\model_multi_3stocks_best.pt",
+      "model_type": "multi_stock",
+      "tickers": [
+        "AAPL",
+        "MSFT",
+        "NVDA"
+      ],
+      "training_epoch": 3,
+      "training_val_loss": 0.1456490367030104,
+      "training_val_rmse": 0.38163993069778535,
+      "model_size_mb": 56.47431564331055,
+      "test_metrics": {}
+    },
+    "model_multi_8stocks_best": {
+      "model_path": "models\\model_multi_8stocks_best.pt",
+      "model_type": "multi_stock",
+      "tickers": [
+        "AAPL",
+        "AMZN",
+        "GOOG",
+        "META",
+        "MSFT",
+        "NFLX",
+        "NVDA",
+        "TSLA"
+      ],
+      "training_epoch": 2,
+      "training_val_loss": 0.24004630694786708,
+      "training_val_rmse": 0.4899452081078731,
+      "model_size_mb": 56.47431564331055,
+      "test_metrics": {}
+    },
+    "MSFT_best": {
+      "model_path": "models\\MSFT_best.pt",
+      "model_type": "single_stock",
+      "tickers": [
+        "best.pt"
+      ],
+      "training_epoch": "Unknown",
+      "training_val_loss": null,
+      "training_val_rmse": null,
+      "model_size_mb": 13.04688549041748,
+      "test_metrics": {}
+    }
+  }
+}

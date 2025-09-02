@@ -1,0 +1,27 @@
+{
+  "feature_columns": [
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "returns",
+    "log_returns",
+    "volatility_20d",
+    "RSI",
+    "MACD",
+    "MACD_signal",
+    "MACD_diff",
+    "BB_position",
+    "volume_ratio",
+    "MA_50",
+    "MA_200",
+    "trend_strength",
+    "distance_from_MA200",
+    "day_of_week",
+    "month",
+    "quarter"
+  ],
+  "seq_len": 60,
+  "forecast_horizon": 3
+}

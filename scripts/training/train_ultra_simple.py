@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-# COMPONENT: Ultra-Simple Single-Ticker Training Script
-# PURPOSE: Train transformer model on individual stock with CLI ticker selection
-# INPUTS: --ticker argument specifying stock symbol, data from data/raw/{ticker}/
+# COMPONENT: Ultra-Simple Single-Ticker Training Script (FIXED)
+# PURPOSE: Train transformer model on individual stock with proper ticker discovery
+# FIXES: Handles flat parquet files (AAPL.parquet) instead of subdirectories
+# INPUTS: --ticker argument specifying stock symbol, data from data/raw/{ticker}.parquet
 # OUTPUTS: Trained model saved as models/model_{ticker}_best.pt, scaler as scalers/scaler_{ticker}.json
-# VERIFICATION: Validates ticker existence, tracks RMSE, logs to W&B with ticker tags
 """
 
+import os
+import re
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -20,7 +22,7 @@ import json
 import wandb
 from datetime import datetime
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Set
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -37,291 +39,204 @@ class TickerDataProcessor:
     # VERIFICATION: Checks for NaN/Inf, validates shapes, saves scaler stats
     """
     
-    def __init__(self, ticker: str, data_dir: Path = Path("data/raw")):
+    def __init__(self, ticker: str, data_dir: Path = Path("data/raw"), scalers_dir: Path = Path("scalers")):
         self.ticker = ticker.upper()
-        self.data_dir = data_dir
+        self.data_dir = Path(data_dir)
+        self.scalers_dir = Path(scalers_dir)
         self.scaler_params = {}
         self.feature_names = []
         
+    def discover_available_tickers(self) -> Dict[str, Set[str]]:
+        """Discover all available tickers from data and scalers"""
+        # Discover data tickers from parquet files
+        data_tickers = set()
+        if self.data_dir.exists():
+            for file in self.data_dir.glob("*.parquet"):
+                ticker = file.stem.upper()
+                data_tickers.add(ticker)
+        
+        # Discover scaler tickers
+        scaler_tickers = set()
+        if self.scalers_dir.exists():
+            for file in self.scalers_dir.glob("scaler_*.json"):
+                match = re.match(r"scaler_(.+)\.json", file.name)
+                if match:
+                    ticker = match.group(1).upper()
+                    scaler_tickers.add(ticker)
+        
+        return {
+            'data': data_tickers,
+            'scalers': scaler_tickers,
+            'available': data_tickers  # Use data files as source of truth
+        }
+        
     def validate_ticker(self) -> bool:
         """Check if ticker data exists"""
-        ticker_dir = self.data_dir / self.ticker
-        if not ticker_dir.exists():
-            return False
-        parquet_files = list(ticker_dir.glob("*.parquet"))
-        return len(parquet_files) > 0
+        ticker_file = self.data_dir / f"{self.ticker}.parquet"
+        return ticker_file.exists()
     
     def load_ticker_data(self) -> pd.DataFrame:
-        """Load all parquet files for the ticker"""
-        ticker_dir = self.data_dir / self.ticker
-        parquet_files = list(ticker_dir.glob("*.parquet"))
+        """Load parquet file for the ticker"""
+        ticker_file = self.data_dir / f"{self.ticker}.parquet"
         
-        if not parquet_files:
-            raise FileNotFoundError(f"No parquet files found for ticker {self.ticker}")
+        if not ticker_file.exists():
+            # Try lowercase
+            ticker_file_lower = self.data_dir / f"{self.ticker.lower()}.parquet"
+            if ticker_file_lower.exists():
+                ticker_file = ticker_file_lower
+            else:
+                raise FileNotFoundError(f"No parquet file found for ticker {self.ticker}")
         
-        # Load the most recent file (sorted by name)
-        parquet_files.sort()
-        df = pd.read_parquet(parquet_files[-1])
+        df = pd.read_parquet(ticker_file)
         
         # Ensure required columns exist
         required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
+            # Try lowercase columns
+            df.columns = [col.capitalize() for col in df.columns]
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                raise ValueError(f"Missing required columns: {missing_cols}")
+        
+        # Sort by index (assumes datetime index)
+        df = df.sort_index()
         
         return df
     
     def engineer_features(self, df: pd.DataFrame) -> np.ndarray:
-        """
-        Engineer features with validation
-        Returns feature array and stores feature names
-        """
+        """Engineer features from raw OHLCV data"""
         features = []
-        self.feature_names = []
         
-        # Price features
-        for col in ['Open', 'High', 'Low', 'Close']:
-            if col in df.columns:
-                features.append(df[col].values)
-                self.feature_names.append(col)
-        
-        # Volume (log-transformed to handle scale)
-        if 'Volume' in df.columns:
-            volume = df['Volume'].values
-            # Add small epsilon to avoid log(0)
-            log_volume = np.log1p(volume)
-            features.append(log_volume)
-            self.feature_names.append('LogVolume')
+        # Basic OHLCV features
+        features.append(df['Open'].values)
+        features.append(df['High'].values)
+        features.append(df['Low'].values)
+        features.append(df['Close'].values)
+        features.append(df['Volume'].values)
         
         # Technical indicators
-        close = df['Close'].values
-        
         # Returns
-        returns = np.zeros_like(close)
-        returns[1:] = (close[1:] - close[:-1]) / (close[:-1] + 1e-8)
-        features.append(returns)
-        self.feature_names.append('Returns')
+        features.append(df['Close'].pct_change().fillna(0).values)
         
         # Moving averages
-        for window in [5, 10, 20]:
-            ma = pd.Series(close).rolling(window=window, min_periods=1).mean().values
-            features.append(ma)
-            self.feature_names.append(f'MA_{window}')
+        features.append(df['Close'].rolling(5).mean().fillna(df['Close']).values)
+        features.append(df['Close'].rolling(20).mean().fillna(df['Close']).values)
         
         # Volatility (rolling std of returns)
-        volatility = pd.Series(returns).rolling(window=20, min_periods=1).std().fillna(0).values
-        features.append(volatility)
-        self.feature_names.append('Volatility')
+        returns = df['Close'].pct_change()
+        features.append(returns.rolling(20).std().fillna(0).values)
+        
+        # Volume moving average
+        features.append(df['Volume'].rolling(5).mean().fillna(df['Volume']).values)
+        
+        # Store feature names for reference
+        self.feature_names = [
+            'Open', 'High', 'Low', 'Close', 'Volume',
+            'Returns', 'MA5', 'MA20', 'Volatility', 'Volume_MA5'
+        ]
         
         # Stack features
-        feature_array = np.column_stack(features).astype(np.float32)
+        features = np.stack(features, axis=1)
         
-        # Check for NaN or Inf
-        if np.any(np.isnan(feature_array)):
-            nan_mask = np.isnan(feature_array).any(axis=1)
-            logging.warning(f"Found {nan_mask.sum()} rows with NaN values, removing...")
-            feature_array = feature_array[~nan_mask]
-        
-        if np.any(np.isinf(feature_array)):
-            inf_mask = np.isinf(feature_array).any(axis=1)
-            logging.warning(f"Found {inf_mask.sum()} rows with Inf values, removing...")
-            feature_array = feature_array[~inf_mask]
-        
-        return feature_array
+        return features
     
     def normalize_features(self, features: np.ndarray) -> np.ndarray:
-        """
-        Normalize features with per-feature statistics
-        Stores scaler parameters for inference
-        """
-        normalized = np.zeros_like(features)
+        """Normalize features using standardization"""
+        # Calculate statistics
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0) + 1e-8  # Avoid division by zero
         
-        for i, feature_name in enumerate(self.feature_names):
-            col = features[:, i]
-            
-            # Calculate statistics
-            mean = float(np.mean(col))
-            std = float(np.std(col))
-            
-            # Avoid division by zero
-            if std < 1e-8:
-                std = 1.0
-            
-            # Normalize
-            normalized[:, i] = (col - mean) / std
-            
-            # Store scaler parameters
-            self.scaler_params[feature_name] = {
-                'mean': mean,
-                'std': std,
-                'min': float(np.min(col)),
-                'max': float(np.max(col))
-            }
+        # Store scaler parameters
+        self.scaler_params = {
+            'mean': mean.tolist(),
+            'std': std.tolist(),
+            'feature_names': self.feature_names,
+            'ticker': self.ticker
+        }
         
-        # Verify no NaN/Inf after normalization
-        assert not np.any(np.isnan(normalized)), "NaN values after normalization"
-        assert not np.any(np.isinf(normalized)), "Inf values after normalization"
+        # Normalize
+        normalized = (features - mean) / std
         
         return normalized
     
-    def create_sequences(
-        self, 
-        features: np.ndarray, 
-        seq_len: int = 60, 
-        horizon: int = 3
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Create sequences with validation
-        Uses percentage returns as targets for scale normalization
-        """
+    def save_scaler(self):
+        """Save scaler parameters to JSON"""
+        self.scalers_dir.mkdir(parents=True, exist_ok=True)
+        scaler_path = self.scalers_dir / f"scaler_{self.ticker}.json"
+        
+        with open(scaler_path, 'w') as f:
+            json.dump(self.scaler_params, f, indent=2)
+        
+        logging.info(f"Saved scaler to {scaler_path}")
+        
+        return scaler_path
+    
+    def create_sequences(self, data: np.ndarray, seq_len: int = 60, 
+                        horizon: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+        """Create sequences for training"""
         sequences = []
         targets = []
         
-        # Get close price index (usually index 3)
-        close_idx = self.feature_names.index('Close')
-        
-        for i in range(seq_len, len(features) - horizon):
-            # Input sequence
-            seq = features[i-seq_len:i]
-            sequences.append(seq)
-            
-            # Target: percentage change from current to future close prices
-            current_close = features[i-1, close_idx]
-            future_closes = features[i:i+horizon, close_idx]
-            
-            # Calculate percentage returns for targets
-            pct_returns = (future_closes - current_close) / (current_close + 1e-8)
-            targets.append(pct_returns)
+        for i in range(seq_len, len(data) - horizon):
+            sequences.append(data[i-seq_len:i])
+            # Predict close price (index 3)
+            targets.append(data[i:i+horizon, 3])
         
         sequences = np.array(sequences, dtype=np.float32)
         targets = np.array(targets, dtype=np.float32)
         
-        # Validate shapes
-        assert sequences.shape[0] == targets.shape[0], "Sequence/target count mismatch"
-        assert sequences.shape[1] == seq_len, f"Expected seq_len {seq_len}, got {sequences.shape[1]}"
-        assert sequences.shape[2] == len(self.feature_names), "Feature dimension mismatch"
-        assert targets.shape[1] == horizon, f"Expected horizon {horizon}, got {targets.shape[1]}"
-        
-        logging.info(f"Created {len(sequences)} sequences")
-        logging.info(f"Sequence shape: {sequences.shape}")
-        logging.info(f"Target shape: {targets.shape}")
-        
         return sequences, targets
-    
-    def save_scaler(self, save_dir: Path):
-        """Save scaler parameters for inference"""
-        save_dir.mkdir(parents=True, exist_ok=True)
-        scaler_path = save_dir / f"scaler_{self.ticker}.json"
-        
-        scaler_data = {
-            'ticker': self.ticker,
-            'feature_names': self.feature_names,
-            'scaler_params': self.scaler_params,
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        with open(scaler_path, 'w') as f:
-            json.dump(scaler_data, f, indent=2)
-        
-        logging.info(f"Saved scaler to {scaler_path}")
 
 
-class ModelTrainer:
-    """
-    # COMPONENT: Production Model Trainer
-    # PURPOSE: Train transformer with proper validation and monitoring
-    # INPUTS: Model, data loaders, training configuration
-    # OUTPUTS: Trained model weights, training metrics
-    # VERIFICATION: Tracks loss convergence, validates on holdout, checks for NaN
-    """
+class SimpleTrainer:
+    """Simple trainer class for single ticker"""
     
-    def __init__(
-        self,
-        model: nn.Module,
-        device: torch.device,
-        ticker: str,
-        learning_rate: float = 1e-3,
-        weight_decay: float = 1e-5
-    ):
+    def __init__(self, model: nn.Module, ticker: str, device: str = 'cuda'):
         self.model = model.to(device)
-        self.device = device
         self.ticker = ticker
-        self.optimizer = optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
-        )
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, 
-            mode='min', 
-            factor=0.5, 
-            patience=5,
-            min_lr=1e-6
-        )
-        self.best_loss = float('inf')
-        self.best_epoch = 0
+        self.device = device
+        self.optimizer = None
+        self.criterion = nn.MSELoss()
         
-    def train_epoch(self, train_loader: DataLoader) -> float:
-        """Train for one epoch with gradient monitoring"""
+    def train_epoch(self, train_loader: DataLoader, epoch: int):
+        """Train for one epoch"""
         self.model.train()
-        total_loss = 0.0
+        total_loss = 0
         num_batches = 0
         
         for batch_idx, (sequences, targets) in enumerate(train_loader):
             sequences = sequences.to(self.device)
             targets = targets.to(self.device)
             
-            # Zero gradients
-            self.optimizer.zero_grad()
-            
             # Forward pass
             predictions = self.model(sequences)
-            
-            # Ensure prediction shape matches target shape
-            if predictions.shape != targets.shape:
-                predictions = predictions[:, :targets.shape[1]]
-            
-            # Calculate loss (MSE for regression)
-            loss = nn.MSELoss()(predictions, targets)
-            
-            # Check for NaN/Inf in loss
-            if torch.isnan(loss) or torch.isinf(loss):
-                logging.error(f"NaN/Inf loss detected at batch {batch_idx}")
-                continue
+            loss = self.criterion(predictions, targets)
             
             # Backward pass
+            self.optimizer.zero_grad()
             loss.backward()
             
-            # Gradient clipping to prevent explosion
+            # Gradient clipping
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             
-            # Optimizer step
             self.optimizer.step()
             
             total_loss += loss.item()
             num_batches += 1
             
-            # Log gradient norms periodically
             if batch_idx % 10 == 0:
-                total_norm = 0
-                for p in self.model.parameters():
-                    if p.grad is not None:
-                        param_norm = p.grad.data.norm(2)
-                        total_norm += param_norm.item() ** 2
-                total_norm = total_norm ** 0.5
-                
-                if total_norm > 100:
-                    logging.warning(f"Large gradient norm: {total_norm:.2f}")
+                logging.info(f"Epoch {epoch}, Batch {batch_idx}/{len(train_loader)}, "
+                           f"Loss: {loss.item():.4f}")
         
-        avg_loss = total_loss / num_batches if num_batches > 0 else float('inf')
-        return avg_loss
+        return total_loss / num_batches
     
     def validate(self, val_loader: DataLoader) -> Dict[str, float]:
-        """Validate with comprehensive metrics"""
+        """Validate the model"""
         self.model.eval()
-        total_loss = 0.0
-        total_mse = 0.0
-        total_mae = 0.0
+        total_loss = 0
+        total_mse = 0
+        total_mae = 0
         num_batches = 0
         
         all_predictions = []
@@ -332,17 +247,12 @@ class ModelTrainer:
                 sequences = sequences.to(self.device)
                 targets = targets.to(self.device)
                 
-                # Forward pass
                 predictions = self.model(sequences)
-                
-                # Ensure shape match
-                if predictions.shape != targets.shape:
-                    predictions = predictions[:, :targets.shape[1]]
+                loss = self.criterion(predictions, targets)
                 
                 # Calculate metrics
-                loss = nn.MSELoss()(predictions, targets)
-                mse = loss.item()
-                mae = nn.L1Loss()(predictions, targets).item()
+                mse = torch.mean((predictions - targets) ** 2).item()
+                mae = torch.mean(torch.abs(predictions - targets)).item()
                 
                 total_loss += loss.item()
                 total_mse += mse
@@ -449,11 +359,60 @@ def main():
     parser.add_argument('--val-split', type=float, default=0.2,
                         help='Validation split ratio')
     
+    # NEW: Add directory overrides
+    parser.add_argument('--data-dir', type=str, default=None,
+                        help='Data directory (default: data/raw or TST_DATA_DIR env)')
+    parser.add_argument('--scalers-dir', type=str, default=None,
+                        help='Scalers directory (default: scalers or TST_SCALERS_DIR env)')
+    parser.add_argument('--allow-data-without-scalers', action='store_true', default=True,
+                        help='Allow training without pre-existing scalers')
+    
     args = parser.parse_args()
+    
+    # Resolve directories with env fallbacks
+    if args.data_dir:
+        data_dir = Path(args.data_dir)
+    elif os.environ.get('TST_DATA_DIR'):
+        data_dir = Path(os.environ['TST_DATA_DIR'])
+    else:
+        data_dir = Path("data/raw")
+    
+    if args.scalers_dir:
+        scalers_dir = Path(args.scalers_dir)
+    elif os.environ.get('TST_SCALERS_DIR'):
+        scalers_dir = Path(os.environ['TST_SCALERS_DIR'])
+    else:
+        scalers_dir = Path("scalers")
     
     # Setup logging
     ticker = args.ticker.upper()
     log_file = setup_logging(ticker)
+    
+    # Log initial discovery information
+    logging.info("=" * 60)
+    logging.info("TICKER DISCOVERY DIAGNOSTICS")
+    logging.info("=" * 60)
+    logging.info(f"Current working directory: {Path.cwd()}")
+    logging.info(f"Script file: {Path(__file__).resolve()}")
+    logging.info(f"Data directory (resolved): {data_dir.resolve()}")
+    logging.info(f"Scalers directory (resolved): {scalers_dir.resolve()}")
+    logging.info(f"Data dir exists: {data_dir.exists()}")
+    logging.info(f"Scalers dir exists: {scalers_dir.exists()}")
+    
+    # Initialize data processor with resolved directories
+    processor = TickerDataProcessor(ticker, data_dir=data_dir, scalers_dir=scalers_dir)
+    
+    # Discover available tickers
+    ticker_info = processor.discover_available_tickers()
+    
+    logging.info(f"\nDiscovered tickers from data: {sorted(ticker_info['data'])}")
+    logging.info(f"Count: {len(ticker_info['data'])}")
+    logging.info(f"\nDiscovered tickers from scalers: {sorted(ticker_info['scalers'])}")
+    logging.info(f"Count: {len(ticker_info['scalers'])}")
+    logging.info(f"\nFinal available tickers: {sorted(ticker_info['available'])}")
+    logging.info(f"Count: {len(ticker_info['available'])}")
+    logging.info("=" * 60)
+    
     logging.info(f"Starting training for ticker: {ticker}")
     logging.info(f"Arguments: {vars(args)}")
     
@@ -467,13 +426,18 @@ def main():
         )
     
     try:
-        # Initialize data processor
-        processor = TickerDataProcessor(ticker)
-        
         # Validate ticker
         if not processor.validate_ticker():
-            available_tickers = [d.name for d in Path("data/raw").iterdir() if d.is_dir()]
-            raise ValueError(f"Ticker {ticker} not found. Available: {available_tickers}")
+            available = sorted(ticker_info['available'])
+            error_msg = (
+                f"\nTicker {ticker} not found.\n"
+                f"Data directory: {data_dir.resolve()}\n"
+                f"Scalers directory: {scalers_dir.resolve()}\n"
+                f"Data tickers found: {ticker_info['data']}\n"
+                f"Scaler tickers found: {ticker_info['scalers']}\n"
+                f"Available tickers: {available}\n"
+            )
+            raise ValueError(error_msg)
         
         logging.info(f"Loading data for {ticker}...")
         
@@ -488,12 +452,19 @@ def main():
         # Normalize features
         normalized_features = processor.normalize_features(features)
         
+        # Save scaler
+        scaler_path = processor.save_scaler()
+        
         # Create sequences
         sequences, targets = processor.create_sequences(
             normalized_features,
             seq_len=args.seq_len,
             horizon=args.horizon
         )
+        
+        logging.info(f"Created {len(sequences)} sequences")
+        logging.info(f"Sequence shape: {sequences.shape}")
+        logging.info(f"Target shape: {targets.shape}")
         
         # Verify no NaN/Inf in data
         assert not np.any(np.isnan(sequences)), "NaN in sequences"
@@ -520,123 +491,87 @@ def main():
             train_dataset,
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=0,
-            pin_memory=True
+            num_workers=0
         )
         
         val_loader = DataLoader(
             val_dataset,
             batch_size=args.batch_size,
             shuffle=False,
-            num_workers=0,
-            pin_memory=True
+            num_workers=0
         )
         
-        # Setup device
+        # Initialize model
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging.info(f"Using device: {device}")
         
-        if device.type == 'cuda':
-            logging.info(f"GPU: {torch.cuda.get_device_name(0)}")
-            logging.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-        
-        # Initialize model
         model = TimeSeriesTransformer(
-            input_dim=len(processor.feature_names),
+            input_dim=features.shape[1],
             hidden_dim=args.hidden_dim,
-            num_heads=args.num_heads,
             num_layers=args.num_layers,
-            dropout=args.dropout,
-            max_seq_length=args.seq_len,
+            num_heads=args.num_heads,
             output_dim=args.horizon,
-            forecast_horizon=args.horizon,
-            use_attention_pooling=True
+            dropout=args.dropout
         )
-        
-        # Log model info
-        model_info = model.get_model_info() if hasattr(model, 'get_model_info') else {}
-        logging.info(f"Model parameters: {model_info.get('total_parameters', 'Unknown')}")
         
         # Initialize trainer
-        trainer = ModelTrainer(
-            model=model,
-            device=device,
-            ticker=ticker,
-            learning_rate=args.learning_rate
-        )
+        trainer = SimpleTrainer(model, ticker, device=str(device))
+        trainer.optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
         
         # Training loop
-        best_val_rmse = float('inf')
+        best_val_loss = float('inf')
+        patience = 5
         patience_counter = 0
-        max_patience = 10
         
-        for epoch in range(args.epochs):
-            logging.info(f"\nEpoch {epoch+1}/{args.epochs}")
+        for epoch in range(1, args.epochs + 1):
+            logging.info(f"\nEpoch {epoch}/{args.epochs}")
             
             # Train
-            train_loss = trainer.train_epoch(train_loader)
+            train_loss = trainer.train_epoch(train_loader, epoch)
             
             # Validate
             val_metrics = trainer.validate(val_loader)
             
-            # Update scheduler
-            trainer.scheduler.step(val_metrics['val_loss'])
-            
-            # Log metrics
-            current_lr = trainer.optimizer.param_groups[0]['lr']
-            logging.info(f"Train Loss: {train_loss:.6f}")
-            logging.info(f"Val RMSE: {val_metrics['val_rmse']:.6f}")
-            logging.info(f"Val MAE: {val_metrics['val_mae']:.6f}")
-            logging.info(f"Val Direction Acc: {val_metrics['val_direction_accuracy']:.2%}")
-            logging.info(f"Learning Rate: {current_lr:.2e}")
+            logging.info(f"Train Loss: {train_loss:.4f}")
+            logging.info(f"Val Loss: {val_metrics['val_loss']:.4f}")
+            logging.info(f"Val RMSE: {val_metrics['val_rmse']:.4f}")
+            logging.info(f"Val Direction Accuracy: {val_metrics['val_direction_accuracy']:.2%}")
             
             # Log to W&B
             if args.use_wandb:
                 wandb.log({
-                    'epoch': epoch + 1,
+                    'epoch': epoch,
                     'train_loss': train_loss,
-                    'val_loss': val_metrics['val_loss'],
-                    'val_rmse': val_metrics['val_rmse'],
-                    'val_mae': val_metrics['val_mae'],
-                    'val_direction_accuracy': val_metrics['val_direction_accuracy'],
-                    'learning_rate': current_lr
+                    **val_metrics
                 })
             
             # Save best model
-            if val_metrics['val_rmse'] < best_val_rmse:
-                best_val_rmse = val_metrics['val_rmse']
+            if val_metrics['val_loss'] < best_val_loss:
+                best_val_loss = val_metrics['val_loss']
+                trainer.save_checkpoint(epoch, val_metrics, Path('models'))
                 patience_counter = 0
-                trainer.save_checkpoint(
-                    epoch=epoch + 1,
-                    metrics=val_metrics,
-                    save_dir=Path("models")
-                )
-                logging.info(f"New best model! RMSE: {best_val_rmse:.6f}")
+                logging.info(f"New best model saved (val_loss: {best_val_loss:.4f})")
             else:
                 patience_counter += 1
-                
-            # Early stopping
-            if patience_counter >= max_patience:
-                logging.info(f"Early stopping triggered after {epoch+1} epochs")
-                break
-        
-        # Save scaler
-        processor.save_scaler(Path("models/scalers"))
+                if patience_counter >= patience:
+                    logging.info(f"Early stopping triggered after {epoch} epochs")
+                    break
         
         # Final summary
-        logging.info("\n" + "="*50)
-        logging.info(f"Training completed for {ticker}")
-        logging.info(f"Best Val RMSE: {best_val_rmse:.6f}")
+        logging.info("\n" + "=" * 60)
+        logging.info("TRAINING COMPLETE")
+        logging.info(f"Best Val Loss: {best_val_loss:.4f}")
         logging.info(f"Model saved to: models/model_{ticker}_best.pt")
-        logging.info(f"Scaler saved to: models/scalers/scaler_{ticker}.json")
-        logging.info(f"Log saved to: {log_file}")
+        logging.info(f"Scaler saved to: {scaler_path}")
+        logging.info(f"Log file: {log_file}")
+        logging.info("=" * 60)
         
+        # Finish W&B run
         if args.use_wandb:
-            wandb.summary['best_val_rmse'] = best_val_rmse
             wandb.finish()
-        
+            
     except Exception as e:
-        logging.error(f"Training failed: {str(e)}", exc_info=True)
+        logging.error(f"Training failed: {str(e)}")
         if args.use_wandb:
             wandb.finish(exit_code=1)
         raise

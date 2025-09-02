@@ -1,42 +1,101 @@
-# Multi-stage build for inference
-FROM python:3.10 AS builder
+# Multi-stage build for minimal inference image
+# STAGE 1: Dependencies builder
+FROM python:3.10-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY requirements-inference.txt* requirements.txt pyproject.toml ./
-RUN pip install --no-cache-dir poetry \
-    && poetry config virtualenvs.create false \
-    && poetry install --only=main --no-dev
 
+# Copy requirements
+COPY requirements.txt ./
+COPY requirements-inference.txt* ./
+
+# Create minimal inference requirements
+RUN echo "# Minimal inference requirements" > requirements-minimal.txt && \
+    echo "torch>=2.4.0" >> requirements-minimal.txt && \
+    echo "fastapi>=0.100.0" >> requirements-minimal.txt && \
+    echo "uvicorn>=0.23.0" >> requirements-minimal.txt && \
+    echo "pydantic>=2.0.0" >> requirements-minimal.txt && \
+    echo "numpy>=1.24.0" >> requirements-minimal.txt && \
+    echo "pandas>=2.0.0" >> requirements-minimal.txt && \
+    echo "redis>=4.6.0" >> requirements-minimal.txt && \
+    echo "prometheus-client>=0.17.0" >> requirements-minimal.txt && \
+    echo "structlog>=23.0.0" >> requirements-minimal.txt
+
+# Install dependencies
+RUN python3 -m pip install --no-cache-dir --upgrade pip wheel setuptools \
+    && python3 -m pip install --no-cache-dir \
+        torch>=2.4.0 \
+        --index-url https://download.pytorch.org/whl/cpu \
+    && python3 -m pip install --no-cache-dir -r requirements-minimal.txt \
+    && if [ -f requirements-inference.txt ]; then pip install --no-cache-dir -r requirements-inference.txt; fi \
+    && python3 -m pip cache purge
+
+# STAGE 2: Production runtime
 FROM python:3.10-slim AS production
 
-# Install runtime dependencies
+# Runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MODEL_PATH=/app/models
+ENV REDIS_URL=redis://redis:6379/0
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8000
+ENV MAX_WORKERS=4
+ENV WORKER_CLASS=uvicorn.workers.UvicornWorker
+ENV LOG_LEVEL=INFO
+ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
 
 WORKDIR /app
 
-# Copy dependencies from builder
+# Copy Python environment from builder
 COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY src/ ./src/
 COPY configs/ ./configs/
-COPY models/ ./models/
+COPY deployment/docker/health_check.py ./
 
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser \
-    && chown -R appuser:appuser /app
+# Create directories for models and logs
+RUN mkdir -p /app/models /app/logs /tmp/prometheus
 
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser -s /bin/false appuser \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app \
+    && chown -R appuser:appuser /tmp/prometheus
+
+# Switch to non-root user
 USER appuser
 
-# Health check
+# Health check with comprehensive validation
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD python3 health_check.py || curl -f http://localhost:8000/health || exit 1
 
 # Expose port
 EXPOSE 8000
 
-# Start API server
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Production entrypoint with gunicorn for better performance
+CMD ["gunicorn", "src.api.app:app", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "4", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--worker-tmp-dir", "/dev/shm", \
+     "--log-level", "info", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "--preload"]

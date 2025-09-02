@@ -1,0 +1,269 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: timeseries-training
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: training
+    version: v1.0.0
+  annotations:
+    batch.kubernetes.io/job-tracking: "true"
+spec:
+  # Allow up to 3 restarts for transient failures
+  backoffLimit: 3
+  # Keep job for 7 days after completion
+  ttlSecondsAfterFinished: 604800
+  # Only run one training job at a time
+  parallelism: 1
+  completions: 1
+  template:
+    metadata:
+      labels:
+        app: timeseries-transformer
+        component: training
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      restartPolicy: Never
+      # Use GPU nodes for training
+      nodeSelector:
+        accelerator: nvidia-tesla-t4
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: accelerator
+                operator: In
+                values: ["nvidia-tesla-t4", "nvidia-tesla-v100", "nvidia-a100"]
+      containers:
+      - name: trainer
+        image: timeseries-transformer-training:latest
+        imagePullPolicy: Always
+        command: ["python3", "-m", "scripts.training.train_ultra_simple"]
+        args: 
+        - "--ticker"
+        - "$(TICKER)"
+        - "--epochs" 
+        - "$(EPOCHS)"
+        - "--batch-size"
+        - "$(BATCH_SIZE)"
+        - "--learning-rate"
+        - "$(LEARNING_RATE)"
+        - "--model-output-dir"
+        - "/app/models"
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: training-secrets
+              key: wandb-api-key
+        - name: WANDB_PROJECT
+          value: "timeseries-transformer"
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow-service:5000"
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://minio-service:9000"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: training-secrets
+              key: aws-access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: training-secrets
+              key: aws-secret-access-key
+        - name: PYTHONPATH
+          value: "/app"
+        - name: TICKER
+          value: "AAPL"
+        - name: EPOCHS
+          value: "100"
+        - name: BATCH_SIZE
+          value: "32"
+        - name: LEARNING_RATE
+          value: "1e-4"
+        - name: MODEL_OUTPUT_PATH
+          value: "/app/models"
+        - name: DATA_PATH
+          value: "/app/data"
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "16Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - name: data-storage
+          mountPath: /app/data
+          readOnly: true
+        - name: model-storage
+          mountPath: /app/models
+        - name: config-volume
+          mountPath: /app/configs
+          readOnly: true
+        - name: cache-volume
+          mountPath: /app/cache
+        - name: logs-volume
+          mountPath: /app/logs
+        # Health checks for training job
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep -v grep | grep python || exit 1"
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: data-storage
+        persistentVolumeClaim:
+          claimName: data-storage-pvc
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage-pvc
+      - name: config-volume
+        configMap:
+          name: training-config
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 5Gi
+      - name: logs-volume
+        emptyDir:
+          sizeLimit: 2Gi
+      serviceAccountName: training-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: training-config
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: training
+data:
+  model_config.yaml: |
+    model:
+      d_model: 512
+      nhead: 8
+      num_layers: 6
+      dim_feedforward: 2048
+      dropout: 0.1
+      activation: "relu"
+      sequence_length: 60
+      
+    training:
+      batch_size: 32
+      learning_rate: 1e-4
+      weight_decay: 1e-5
+      num_epochs: 100
+      patience: 10
+      min_delta: 1e-4
+      
+    data:
+      features: ["Open", "High", "Low", "Close", "Volume"]
+      target: "Close"
+      sequence_length: 60
+      train_split: 0.8
+      val_split: 0.1
+      test_split: 0.1
+      
+  logging_config.yaml: |
+    version: 1
+    disable_existing_loggers: false
+    formatters:
+      default:
+        format: '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        level: INFO
+        formatter: default
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        level: DEBUG
+        formatter: default
+        filename: /app/logs/training.log
+    loggers:
+      '':
+        level: INFO
+        handlers: [console, file]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: training-secrets
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: training
+type: Opaque
+data:
+  # Base64 encoded secrets (replace with actual values)
+  wandb-api-key: "" # echo -n "your-wandb-key" | base64
+  aws-access-key-id: bWluaW9hZG1pbg== # minioadmin
+  aws-secret-access-key: bWluaW9hZG1pbg== # minioadmin
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: training-service-account
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: training
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: timeseries-transformer
+  name: training-role
+  labels:
+    app: timeseries-transformer
+    component: training
+rules:
+- apiGroups: [""]
+  resources: ["pods", "configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: training-role-binding
+  namespace: timeseries-transformer
+  labels:
+    app: timeseries-transformer
+    component: training
+subjects:
+- kind: ServiceAccount
+  name: training-service-account
+  namespace: timeseries-transformer
+roleRef:
+  kind: Role
+  name: training-role
+  apiGroup: rbac.authorization.k8s.io

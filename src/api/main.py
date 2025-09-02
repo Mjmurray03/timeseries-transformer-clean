@@ -1,611 +1,339 @@
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.openapi.utils import get_openapi
-from contextlib import asynccontextmanager
-import asyncio
-import logging
-import time
-import os
+from pydantic import BaseModel, Field, validator
+from typing import List, Dict, Optional
+import torch
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
 import redis
-import uuid
-from datetime import datetime
-from typing import List, Dict, Any, Optional
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-from starlette.responses import Response
 import json
+import hashlib
+from pathlib import Path
 
-from .schemas import (
-    PredictionRequest, PredictionResponse, BatchPredictionRequest, BatchPredictionResponse,
-    HealthResponse, ModelInfoResponse, MetricsResponse, WebSocketMessage, StreamingRequest,
-    AuthResponse
-)
-from .model_server import ModelServer, ModelPool
-from .cache import initialize_caches, get_prediction_cache, get_model_cache
-from .middleware import (
-    LoggingMiddleware, CORSMiddleware as CustomCORSMiddleware, RateLimitMiddleware,
-    SecurityHeadersMiddleware, get_current_user, get_optional_user
-)
-from .exceptions import (
-    BaseAPIException, ValidationError, InferenceError, ServiceUnavailableError,
-    api_exception_handler, validation_exception_handler, http_exception_handler_custom,
-    general_exception_handler
+# Initialize FastAPI
+app = FastAPI(
+    title="TimeSeries Transformer API",
+    version="1.0.0",
+    description="Production API for stock price predictions"
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# CORS for web frontends
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-logger = logging.getLogger(__name__)
-
-# Prometheus metrics
-REQUEST_COUNT = Counter('api_requests_total', 'Total API requests', ['method', 'endpoint', 'status'])
-REQUEST_DURATION = Histogram('api_request_duration_seconds', 'Request duration in seconds', ['method', 'endpoint'])
-INFERENCE_DURATION = Histogram('model_inference_duration_seconds', 'Model inference duration in seconds')
-ACTIVE_CONNECTIONS = Gauge('api_active_connections', 'Number of active connections')
-CACHE_HITS = Counter('cache_hits_total', 'Total cache hits', ['cache_type'])
-CACHE_MISSES = Counter('cache_misses_total', 'Total cache misses', ['cache_type'])
-MODEL_ERRORS = Counter('model_errors_total', 'Total model errors', ['error_type'])
-
-# Global state
-model_server: Optional[ModelServer] = None
-model_pool: Optional[ModelPool] = None
-redis_client: Optional[redis.Redis] = None
-startup_time = datetime.now()
-websocket_connections: Dict[str, WebSocket] = {}
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
-    # Startup
-    logger.info("Starting Time-Series Transformer API...")
+# REQUEST/RESPONSE MODELS
+class PredictionRequest(BaseModel):
+    ticker: str = Field(..., description="Stock ticker symbol")
+    features: List[List[float]] = Field(..., description="60 days x 8 features")
+    horizon: int = Field(3, ge=1, le=10, description="Prediction horizon in days")
     
-    try:
-        # Initialize caches
-        redis_host = os.getenv('REDIS_HOST', 'localhost')
-        redis_port = int(os.getenv('REDIS_PORT', '6379'))
-        redis_db = int(os.getenv('REDIS_DB', '0'))
+    @validator('features')
+    def validate_features(cls, v):
+        if len(v) != 60:
+            raise ValueError("Must provide exactly 60 days of features")
+        if any(len(day) != 8 for day in v):
+            raise ValueError("Each day must have exactly 8 features")
+        return v
+    
+    @validator('ticker')
+    def validate_ticker(cls, v):
+        allowed = ['AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'NVDA', 'TSLA', 'NFLX']
+        if v not in allowed:
+            raise ValueError(f"Ticker must be one of {allowed}")
+        return v
+
+class PredictionResponse(BaseModel):
+    ticker: str
+    predictions: List[float] = Field(..., description="Predicted prices for horizon")
+    confidence_intervals: Dict[str, List[float]] = Field(..., description="CI bounds")
+    timestamp: datetime
+    model_version: str
+    cache_hit: bool = False
+
+class BacktestRequest(BaseModel):
+    ticker: str
+    start_date: str = Field(..., description="YYYY-MM-DD format")
+    end_date: str = Field(..., description="YYYY-MM-DD format")
+    initial_capital: float = Field(100000, gt=0)
+    strategy_params: Dict = Field(
+        default={
+            "return_threshold": 0.02,
+            "confidence_threshold": 0.7,
+            "max_positions": 5
+        }
+    )
+
+class BacktestResponse(BaseModel):
+    total_return: float
+    sharpe_ratio: float
+    max_drawdown: float
+    win_rate: float
+    num_trades: int
+    period_days: int
+
+class ModelInfoResponse(BaseModel):
+    model_version: str
+    architecture: str
+    parameters: int
+    training_date: str
+    supported_tickers: List[str]
+    performance_metrics: Dict[str, float]
+# GLOBAL MODEL LOADING
+class ModelManager:
+    def __init__(self):
+        self.models = {}
+        self.scalers = {}
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self._load_all_models()
+    
+    def _load_all_models(self):
+        """Load all available models on startup"""
+        model_dir = Path("models")
+        scaler_dir = Path("scalers")
         
-        initialize_caches(redis_host, redis_port, redis_db)
+        for model_path in model_dir.glob("*_best.pt"):
+            ticker = model_path.stem.split("_")[0]
+            
+            # Load model
+            model = self._create_model()
+            model.load_state_dict(torch.load(model_path, map_location=self.device))
+            model.eval()
+            model.to(self.device)
+            self.models[ticker] = model
+            
+            # Load scaler
+            scaler_path = scaler_dir / f"scaler_{ticker}.json"
+            if scaler_path.exists():
+                with open(scaler_path) as f:
+                    self.scalers[ticker] = json.load(f)
+    
+    def _create_model(self):
+        """Create model architecture - imported from src.models"""
+        from src.models.timeseries_transformer import TimeSeriesTransformer
+        return TimeSeriesTransformer(
+            input_dim=8,
+            d_model=128,
+            n_heads=8,
+            n_layers=4,
+            d_ff=512,
+            dropout=0.1,
+            seq_len=60,
+            output_dim=3
+        )
+    
+    @torch.no_grad()
+    def predict(self, ticker: str, features: np.ndarray) -> Dict:
+        """Generate prediction with model"""
+        if ticker not in self.models:
+            raise ValueError(f"No model available for {ticker}")
         
-        # Initialize Redis client for middleware
-        global redis_client
+        model = self.models[ticker]
+        scaler = self.scalers[ticker]
+        
+        # Standardize features
+        features_scaled = (features - scaler['feat_mean']) / scaler['feat_std']
+        
+        # Convert to tensor
+        x = torch.FloatTensor(features_scaled).unsqueeze(0).to(self.device)
+        
+        # Predict
+        output = model(x)
+        pred_scaled = output.cpu().numpy()[0]
+        
+        # De-standardize predictions
+        pred_dollars = pred_scaled * scaler['tgt_std'] + scaler['tgt_mean']
+        
+        # Calculate confidence intervals (using dropout uncertainty)
+        model.train()  # Enable dropout
+        predictions = []
+        for _ in range(100):
+            out = model(x).cpu().numpy()[0]
+            predictions.append(out * scaler['tgt_std'] + scaler['tgt_mean'])
+        model.eval()
+        
+        predictions = np.array(predictions)
+        ci_lower = np.percentile(predictions, 5, axis=0)
+        ci_upper = np.percentile(predictions, 95, axis=0)
+        
+        return {
+            'predictions': pred_dollars.tolist(),
+            'ci_lower': ci_lower.tolist(),
+            'ci_upper': ci_upper.tolist()
+        }
+# CACHE MANAGER
+class CacheManager:
+    def __init__(self):
         try:
-            redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-            redis_client.ping()
-            logger.info(f"Connected to Redis at {redis_host}:{redis_port}")
-        except redis.ConnectionError:
-            logger.warning("Redis connection failed. Some features will be disabled.")
-            redis_client = None
-        
-        # Initialize model server
-        model_path = os.getenv('MODEL_PATH', 'models/best_model.pt')
-        scaler_path = os.getenv('SCALER_PATH', 'models/scaler.pkl')
-        device = os.getenv('DEVICE', 'auto')
-        
-        global model_server, model_pool
-        
-        # Check if model pool is requested
-        pool_size = int(os.getenv('MODEL_POOL_SIZE', '1'))
-        
-        if pool_size > 1:
-            model_configs = [{
-                'model_path': model_path,
-                'scaler_path': scaler_path,
-                'device': device
-            }]
-            model_pool = ModelPool(model_configs, pool_size)
-            logger.info(f"Initialized model pool with {pool_size} instances")
-        else:
-            model_server = ModelServer(model_path, scaler_path, device)
-            logger.info("Initialized single model server instance")
-        
-        logger.info("API startup completed successfully")
-        
-    except Exception as e:
-        logger.error(f"Startup failed: {e}")
-        raise
+            self.redis = redis.Redis(
+                host='localhost', 
+                port=6379, 
+                decode_responses=True,
+                socket_connect_timeout=5
+            )
+            self.redis.ping()
+            self.enabled = True
+        except:
+            self.enabled = False
     
-    yield
+    def get_cache_key(self, request_dict: dict) -> str:
+        """Generate deterministic cache key"""
+        content = json.dumps(request_dict, sort_keys=True)
+        return f"prediction:{hashlib.sha256(content.encode()).hexdigest()}"
     
-    # Shutdown
-    logger.info("Shutting down API...")
-    
-    # Close WebSocket connections
-    for conn_id, websocket in websocket_connections.items():
+    def get(self, key: str) -> Optional[Dict]:
+        if not self.enabled:
+            return None
         try:
-            await websocket.close()
+            cached = self.redis.get(key)
+            return json.loads(cached) if cached else None
+        except:
+            return None
+    
+    def set(self, key: str, value: Dict, expire: int = 3600):
+        if not self.enabled:
+            return
+        try:
+            self.redis.setex(key, expire, json.dumps(value))
         except:
             pass
-    
-    # Close Redis connection
-    if redis_client:
-        redis_client.close()
-    
-    logger.info("API shutdown completed")
 
+# INITIALIZE MANAGERS
+model_manager = ModelManager()
+cache_manager = CacheManager()
 
-# Create FastAPI application
-app = FastAPI(
-    title="Time-Series Transformer API",
-    version="1.0.0",
-    description="Production-ready API for stock price prediction using transformer models",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-    lifespan=lifespan
-)
+# ENDPOINTS
 
-# Add middleware
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(
-    RateLimitMiddleware,
-    redis_client=None,  # Will be set after Redis initialization
-    default_rate_limit=100,
-    time_window=60
-)
-app.add_middleware(
-    CustomCORSMiddleware,
-    allow_origins=["*"],  # Configure based on environment
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    max_age=600
-)
-app.add_middleware(LoggingMiddleware)
-
-# Add exception handlers
-app.add_exception_handler(BaseAPIException, api_exception_handler)
-app.add_exception_handler(Exception, general_exception_handler)
-
-
-def get_model_instance() -> ModelServer:
-    """Get model server instance"""
-    if model_pool:
-        return model_pool.get_instance()
-    elif model_server:
-        return model_server
-    else:
-        raise ServiceUnavailableError("Model server not available")
-
-
-@app.middleware("http")
-async def add_process_time_header(request, call_next):
-    """Add processing time metrics"""
-    start_time = time.time()
-    
-    # Track active connections
-    ACTIVE_CONNECTIONS.inc()
-    
-    try:
-        response = await call_next(request)
-        
-        # Record metrics
-        process_time = time.time() - start_time
-        REQUEST_DURATION.labels(method=request.method, endpoint=request.url.path).observe(process_time)
-        REQUEST_COUNT.labels(
-            method=request.method,
-            endpoint=request.url.path,
-            status=response.status_code
-        ).inc()
-        
-        return response
-        
-    finally:
-        ACTIVE_CONNECTIONS.dec()
-
-
-@app.post("/predict", response_model=PredictionResponse, tags=["Predictions"])
-async def predict(
-    request: PredictionRequest,
-    background_tasks: BackgroundTasks,
-    user: Optional[AuthResponse] = Depends(get_optional_user)
-):
-    """Generate prediction for a single ticker"""
-    request_id = str(uuid.uuid4())
-    
-    try:
-        # Check cache first
-        cache = get_prediction_cache()
-        if cache:
-            cache_key = cache.generate_cache_key(request)
-            cached_response = cache.get(cache_key)
-            
-            if cached_response:
-                CACHE_HITS.labels(cache_type="prediction").inc()
-                return cached_response
-            else:
-                CACHE_MISSES.labels(cache_type="prediction").inc()
-        
-        # Get model instance
-        model_instance = get_model_instance()
-        
-        # Run inference
-        start_time = time.time()
-        response = model_instance.predict(request, request_id)
-        inference_time = time.time() - start_time
-        
-        INFERENCE_DURATION.observe(inference_time)
-        
-        # Cache response
-        if cache:
-            background_tasks.add_task(cache.set, cache_key, response, ttl=300)
-        
-        return response
-        
-    except Exception as e:
-        MODEL_ERRORS.labels(error_type=type(e).__name__).inc()
-        logger.error(f"Prediction failed for {request.ticker}: {e}")
-        
-        if isinstance(e, (ValueError, TypeError)):
-            raise ValidationError(str(e), request_id=request_id)
-        else:
-            raise InferenceError(f"Prediction failed: {str(e)}", request_id=request_id)
-
-
-@app.post("/batch_predict", response_model=BatchPredictionResponse, tags=["Predictions"])
-async def batch_predict(
-    request: BatchPredictionRequest,
-    background_tasks: BackgroundTasks,
-    user: Optional[AuthResponse] = Depends(get_optional_user)
-):
-    """Generate predictions for multiple tickers"""
-    request_id = str(uuid.uuid4())
-    batch_start_time = time.time()
-    
-    try:
-        # Process requests in parallel
-        tasks = []
-        cache = get_prediction_cache()
-        
-        for i, pred_request in enumerate(request.requests):
-            task_id = f"{request_id}_{i}"
-            
-            # Check cache
-            cached_response = None
-            cache_key = None
-            
-            if cache:
-                cache_key = cache.generate_cache_key(pred_request)
-                cached_response = cache.get(cache_key)
-                
-                if cached_response:
-                    CACHE_HITS.labels(cache_type="prediction").inc()
-                    tasks.append(asyncio.create_task(asyncio.coroutine(lambda r=cached_response: r)()))
-                    continue
-                else:
-                    CACHE_MISSES.labels(cache_type="prediction").inc()
-            
-            # Create prediction task
-            async def predict_single(req, tid):
-                model_instance = get_model_instance()
-                result = model_instance.predict(req, tid)
-                
-                # Cache result
-                if cache and cache_key:
-                    background_tasks.add_task(cache.set, cache_key, result, ttl=300)
-                
-                return result
-            
-            task = asyncio.create_task(predict_single(pred_request, task_id))
-            tasks.append(task)
-        
-        # Wait for all predictions to complete
-        predictions = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        successful_predictions = []
-        errors = []
-        
-        for i, result in enumerate(predictions):
-            if isinstance(result, Exception):
-                MODEL_ERRORS.labels(error_type=type(result).__name__).inc()
-                errors.append({
-                    "index": i,
-                    "ticker": request.requests[i].ticker,
-                    "error": str(result)
-                })
-            else:
-                successful_predictions.append(result)
-        
-        batch_time = time.time() - batch_start_time
-        
-        # Create batch metadata
-        batch_metadata = {
-            "batch_id": request_id,
-            "total_requests": len(request.requests),
-            "successful_predictions": len(successful_predictions),
-            "failed_predictions": len(errors),
-            "batch_processing_time_ms": round(batch_time * 1000, 2),
-            "timestamp": datetime.now().isoformat(),
-            "errors": errors if errors else None
-        }
-        
-        return BatchPredictionResponse(
-            predictions=successful_predictions,
-            batch_metadata=batch_metadata
-        )
-        
-    except Exception as e:
-        logger.error(f"Batch prediction failed: {e}")
-        raise InferenceError(f"Batch prediction failed: {str(e)}", request_id=request_id)
-
-
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "cuda_available": torch.cuda.is_available(),
+        "models_loaded": list(model_manager.models.keys()),
+        "cache_enabled": cache_manager.enabled
+    }
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict(request: PredictionRequest):
+    """Generate price predictions for given features"""
+    
+    # Check cache
+    cache_key = cache_manager.get_cache_key(request.dict())
+    cached = cache_manager.get(cache_key)
+    if cached:
+        return PredictionResponse(**cached, cache_hit=True)
+    
     try:
-        uptime = (datetime.now() - startup_time).total_seconds()
+        # Generate prediction
+        features = np.array(request.features, dtype=np.float32)
+        result = model_manager.predict(request.ticker, features)
         
-        # Check model status
-        model_status = {}
-        if model_pool:
-            pool_health = model_pool.health_check()
-            model_status = {f"model_{k}": "healthy" if v else "unhealthy" for k, v in pool_health.items()}
-        elif model_server:
-            model_status["model_primary"] = "healthy" if model_server.health_check() else "unhealthy"
+        # Build response
+        response_data = {
+            "ticker": request.ticker,
+            "predictions": result['predictions'],
+            "confidence_intervals": {
+                "lower": result['ci_lower'],
+                "upper": result['ci_upper']
+            },
+            "timestamp": datetime.now(),
+            "model_version": "1.0.0",
+            "cache_hit": False
+        }
         
-        # Check dependencies
-        dependencies = {}
+        # Cache result
+        cache_manager.set(cache_key, response_data)
         
-        # Redis health
-        if redis_client:
-            try:
-                redis_client.ping()
-                dependencies["redis"] = "healthy"
-            except:
-                dependencies["redis"] = "unhealthy"
-        else:
-            dependencies["redis"] = "disabled"
-        
-        # Cache health
-        cache = get_prediction_cache()
-        if cache:
-            dependencies["prediction_cache"] = "healthy" if cache.health_check() else "unhealthy"
-        else:
-            dependencies["prediction_cache"] = "disabled"
-        
-        # Determine overall status
-        all_healthy = (
-            all(status == "healthy" for status in model_status.values()) and
-            all(status in ["healthy", "disabled"] for status in dependencies.values())
-        )
-        
-        overall_status = "healthy" if all_healthy else "unhealthy"
-        
-        return HealthResponse(
-            status=overall_status,
-            timestamp=datetime.now(),
-            version="1.0.0",
-            uptime_seconds=uptime,
-            model_status=model_status,
-            dependencies=dependencies
-        )
+        return PredictionResponse(**response_data)
         
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return HealthResponse(
-            status="unhealthy",
-            timestamp=datetime.now(),
-            version="1.0.0",
-            uptime_seconds=0,
-            model_status={"error": str(e)},
-            dependencies={}
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/ready", tags=["Health"])
-async def readiness_check():
-    """Readiness check for Kubernetes"""
+@app.post("/backtest", response_model=BacktestResponse)
+async def run_backtest(request: BacktestRequest, background_tasks: BackgroundTasks):
+    """Run backtesting simulation"""
+    
     try:
-        # Quick model check
-        if model_pool:
-            health_checks = model_pool.health_check()
-            if not any(health_checks.values()):
-                raise HTTPException(status_code=503, detail="No healthy model instances")
-        elif model_server:
-            if not model_server.health_check():
-                raise HTTPException(status_code=503, detail="Model server unhealthy")
-        else:
-            raise HTTPException(status_code=503, detail="No model server available")
+        # Import backtesting engine
+        from src.backtesting.backtest_engine import BacktestEngine
         
-        return {"status": "ready"}
+        # Load historical data
+        data_path = f"data/raw/{request.ticker}.parquet"
+        if not Path(data_path).exists():
+            raise HTTPException(status_code=404, detail=f"No data for {request.ticker}")
+        
+        # Run backtest (simplified for API)
+        engine = BacktestEngine(
+            initial_capital=request.initial_capital,
+            **request.strategy_params
+        )
+        
+        results = engine.run_quick_backtest(
+            ticker=request.ticker,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            model=model_manager.models[request.ticker]
+        )
+        
+        return BacktestResponse(**results)
         
     except HTTPException:
-        raise
+        raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Service not ready: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/model_info", response_model=ModelInfoResponse, tags=["Model"])
-async def get_model_info():
-    """Get model information"""
-    try:
-        if model_pool:
-            # Return info from first instance
-            instance = model_pool.get_instance()
-            model_info = instance.get_model_info()
-            pool_info = model_pool.get_pool_info()
-            model_info.update({"pool_info": pool_info})
-        elif model_server:
-            model_info = model_server.get_model_info()
-        else:
-            raise ServiceUnavailableError("Model server not available")
-        
-        return ModelInfoResponse(
-            model_version=model_info.get("model_version", "unknown"),
-            architecture="transformer",
-            parameters=model_info.get("parameters", 0),
-            device=model_info.get("device", "unknown"),
-            loaded_at=datetime.fromisoformat(model_info["loaded_at"]) if model_info.get("loaded_at") else startup_time,
-            training_metrics={}  # TODO: Load from model metadata
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get model info: {e}")
-        raise ServiceUnavailableError(f"Failed to get model info: {str(e)}")
-
-
-@app.get("/metrics", tags=["Monitoring"])
-async def get_prometheus_metrics():
-    """Prometheus metrics endpoint"""
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-
-@app.get("/metrics/summary", response_model=MetricsResponse, tags=["Monitoring"])
-async def get_metrics_summary():
-    """Get metrics summary"""
-    try:
-        # Get cache stats
-        cache_stats = {"hit_rate": 0.0}
-        cache = get_prediction_cache()
-        if cache:
-            cache_stats = cache.get_stats()
-        
-        return MetricsResponse(
-            active_connections=int(ACTIVE_CONNECTIONS._value._value),
-            total_requests=int(REQUEST_COUNT._value.sum()),
-            cache_hit_rate=cache_stats.get("hit_rate", 0.0) * 100,
-            avg_inference_time_ms=0.0,  # TODO: Calculate from histogram
-            error_rate=0.0  # TODO: Calculate error rate
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get metrics: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve metrics")
-
-
-@app.websocket("/ws/stream/{ticker}")
-async def websocket_endpoint(websocket: WebSocket, ticker: str):
-    """WebSocket endpoint for streaming predictions"""
-    await websocket.accept()
-    connection_id = str(uuid.uuid4())
-    websocket_connections[connection_id] = websocket
+@app.get("/model-info", response_model=ModelInfoResponse)
+async def model_info():
+    """Get information about loaded models"""
     
-    try:
-        logger.info(f"WebSocket connection established: {connection_id} for {ticker}")
-        
-        # Send welcome message
-        welcome_msg = WebSocketMessage(
-            type="status",
-            data={"message": f"Connected to {ticker} stream", "connection_id": connection_id},
-            timestamp=datetime.now(),
-            request_id=connection_id
-        )
-        await websocket.send_text(welcome_msg.json())
-        
-        # Handle incoming messages
-        while True:
-            try:
-                # Wait for client message or timeout
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                message = json.loads(data)
-                
-                # Process streaming request
-                if message.get("type") == "start_stream":
-                    streaming_request = StreamingRequest(**message.get("data", {}))
-                    await handle_streaming_predictions(websocket, streaming_request, connection_id)
-                
-            except asyncio.TimeoutError:
-                # Send keep-alive message
-                keepalive_msg = WebSocketMessage(
-                    type="keepalive",
-                    data={"timestamp": datetime.now().isoformat()},
-                    timestamp=datetime.now(),
-                    request_id=connection_id
-                )
-                await websocket.send_text(keepalive_msg.json())
-                
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {connection_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        error_msg = WebSocketMessage(
-            type="error",
-            data={"error": str(e)},
-            timestamp=datetime.now(),
-            request_id=connection_id
-        )
-        try:
-            await websocket.send_text(error_msg.json())
-        except:
-            pass
-    finally:
-        websocket_connections.pop(connection_id, None)
-
-
-async def handle_streaming_predictions(websocket: WebSocket, request: StreamingRequest, connection_id: str):
-    """Handle streaming prediction requests"""
-    try:
-        while True:
-            # TODO: Implement actual streaming logic with live data
-            # For now, send periodic mock predictions
-            
-            prediction_msg = WebSocketMessage(
-                type="prediction",
-                data={
-                    "ticker": request.ticker,
-                    "prediction": [1.0, 2.0, 3.0, 4.0, 5.0],  # Mock data
-                    "timestamp": datetime.now().isoformat(),
-                    "confidence": 0.95
-                },
-                timestamp=datetime.now(),
-                request_id=connection_id
-            )
-            
-            await websocket.send_text(prediction_msg.json())
-            await asyncio.sleep(request.update_interval)
-            
-    except WebSocketDisconnect:
-        logger.info(f"Streaming stopped for connection: {connection_id}")
-    except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        raise
-
-
-# Custom OpenAPI documentation
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-    
-    openapi_schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
+    return ModelInfoResponse(
+        model_version="1.0.0",
+        architecture="TimeSeriesTransformer",
+        parameters=464571,
+        training_date="2024-08-27",
+        supported_tickers=list(model_manager.models.keys()),
+        performance_metrics={
+            "avg_rmse": 0.268,
+            "avg_sharpe": 1.2,
+            "directional_accuracy": 0.57
+        }
     )
-    
-    # Add custom examples
-    if "paths" in openapi_schema:
-        # Add example for prediction endpoint
-        if "/predict" in openapi_schema["paths"]:
-            openapi_schema["paths"]["/predict"]["post"]["requestBody"]["content"]["application/json"]["example"] = {
-                "ticker": "AAPL",
-                "features": [[1.0] * 7] * 60,
-                "horizon": 5
-            }
-    
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
 
+# STARTUP/SHUTDOWN EVENTS
 
-app.openapi = custom_openapi
+@app.on_event("startup")
+async def startup_event():
+    """Initialize resources on startup"""
+    print(f"API Started. Models loaded: {list(model_manager.models.keys())}")
+    print(f"Cache enabled: {cache_manager.enabled}")
+    print(f"Device: {model_manager.device}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    if cache_manager.enabled:
+        cache_manager.redis.close()
+
+# ERROR HANDLERS
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request, exc):
+    return {"error": str(exc)}, 400
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    return {"error": "Internal server error", "detail": str(exc)}, 500
 
 if __name__ == "__main__":
     import uvicorn
-    
-    port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "0.0.0.0")
-    workers = int(os.getenv("WORKERS", "1"))
-    
     uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        workers=workers,
+        app,
+        host="0.0.0.0",
+        port=8000,
         log_level="info",
-        access_log=True,
-        reload=False
+        access_log=True
     )

@@ -5,8 +5,7 @@ services:
   api:
     build:
       context: ../..
-      dockerfile: deployment/docker/Dockerfile
-      target: inference
+      dockerfile: deployment/docker/Dockerfile.inference
     container_name: timeseries-api
     ports:
       - "8000:8000"
@@ -17,12 +16,18 @@ services:
       - MODEL_PATH=/app/models
       - CACHE_ENABLED=true
       - PROMETHEUS_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - PYTHONPATH=/app
     volumes:
       - ../../models:/app/models:ro
       - api-logs:/app/logs
     networks:
       - timeseries-network
     restart: unless-stopped
+    depends_on:
+      - redis
+      - mlflow
     deploy:
       resources:
         limits:
@@ -42,8 +47,7 @@ services:
   training:
     build:
       context: ../..
-      dockerfile: deployment/docker/Dockerfile
-      target: training
+      dockerfile: deployment/docker/Dockerfile.training
     container_name: timeseries-training
     environment:
       - CUDA_VISIBLE_DEVICES=0
@@ -51,13 +55,23 @@ services:
       - WANDB_PROJECT=timeseries-transformer
       - MODEL_OUTPUT_PATH=/app/models
       - DATA_PATH=/app/data
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL:-http://minio:9000}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      - PYTHONPATH=/app
     volumes:
       - ../../data:/app/data
       - ../../models:/app/models
       - ../../configs:/app/configs
+      - ../../scripts:/app/scripts
       - training-logs:/app/logs
     networks:
       - timeseries-network
+    depends_on:
+      - postgres
+      - mlflow
+      - minio
     deploy:
       resources:
         reservations:
@@ -68,27 +82,37 @@ services:
     profiles:
       - training
 
-  # Development Environment
-  dev:
+  # Development Environment (Jupyter)
+  notebook:
     build:
       context: ../..
-      dockerfile: deployment/docker/Dockerfile
-      target: development
-    container_name: timeseries-dev
+      dockerfile: deployment/docker/Dockerfile.notebook
+    container_name: timeseries-notebook
     ports:
-      - "8000:8000"  # API
-      - "8888:8888"  # Jupyter
+      - "8888:8888"  # Jupyter Lab
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/home/jovyan/work
       - JUPYTER_ENABLE_LAB=yes
       - LOG_LEVEL=DEBUG
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - CUDA_VISIBLE_DEVICES=0
     volumes:
-      - ../..:/app
-      - dev-cache:/root/.cache
+      - ../..:/home/jovyan/work
+      - jupyter-cache:/home/jovyan/.cache
     networks:
       - timeseries-network
+    depends_on:
+      - mlflow
+      - redis
     stdin_open: true
     tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     profiles:
       - development
 
@@ -218,6 +242,59 @@ services:
     profiles:
       - monitoring
 
+  # MLflow Tracking Server
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.8.1
+    container_name: timeseries-mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql://${DB_USER:-tsuser}:${DB_PASSWORD:-tspass}@postgres:5432/mlflow
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=s3://mlflow-artifacts/
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-minioadmin}
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://${DB_USER:-tsuser}:${DB_PASSWORD:-tspass}@postgres:5432/mlflow
+      --default-artifact-root s3://mlflow-artifacts/
+      --host 0.0.0.0
+      --port 5000
+    networks:
+      - timeseries-network
+    depends_on:
+      - postgres
+      - minio
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # MinIO S3-compatible object storage for MLflow artifacts
+  minio:
+    image: minio/minio:latest
+    container_name: timeseries-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    networks:
+      - timeseries-network
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   timeseries-network:
     driver: bridge
@@ -227,8 +304,9 @@ volumes:
   redis-data:
   api-logs:
   training-logs:
-  dev-cache:
+  jupyter-cache:
   prometheus-data:
   grafana-data:
   loki-data:
   nginx-cache:
+  minio-data:

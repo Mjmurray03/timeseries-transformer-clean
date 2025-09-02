@@ -1,44 +1,117 @@
-# Training Image - Full ML stack with CUDA support
-FROM nvidia/cuda:12.4-cudnn8-runtime-ubuntu22.04 AS base
+# Multi-stage build for optimal size and security
+# STAGE 1: CUDA base with Python
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04 as cuda-base
 
-# Set environment variables
-ENV PYTHONPATH=/app
+# CRITICAL: Must include ALL of these
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 ENV CUDA_VISIBLE_DEVICES=0
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9"
+ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+ENV PYTHONPATH=/app
+ENV WANDB_PROJECT=timeseries-transformer
+ENV MLFLOW_TRACKING_URI=http://mlflow:5000
+ENV MODEL_REGISTRY_URI=s3://models/
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies including CUDA development tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
+    python3.10-dev \
     python3-pip \
-    python3-dev \
+    python3-setuptools \
     build-essential \
+    cmake \
     git \
+    git-lfs \
     wget \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    libssl-dev \
+    libffi-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libjpeg-dev \
+    libpng-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Create app directory
+# Create app directory and set permissions
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt pyproject.toml ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser -s /bin/bash appuser \
+    && mkdir -p /app/data /app/models /app/logs /app/artifacts \
+    && chown -R appuser:appuser /app
 
-# Copy source code
+# STAGE 2: Dependencies installation
+FROM cuda-base as dependencies
+
+# Copy requirements first for better caching
+COPY requirements.txt ./
+COPY requirements-training.txt* ./
+
+# Install Python dependencies with optimizations
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python3 -m pip install --no-cache-dir \
+        torch>=2.4.0 \
+        torchvision>=0.19.0 \
+        torchaudio>=2.4.0 \
+        --index-url https://download.pytorch.org/whl/cu121 \
+    && python3 -m pip install --no-cache-dir -r requirements.txt \
+    && if [ -f requirements-training.txt ]; then pip install --no-cache-dir -r requirements-training.txt; fi \
+    && python3 -m pip install --no-cache-dir \
+        nvidia-ml-py3 \
+        pynvml \
+        gpustat \
+        tensorboard \
+    && python3 -m pip cache purge
+
+# STAGE 3: Application code
+FROM dependencies as application
+
+# Copy application code
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY configs/ ./configs/
+COPY pyproject.toml* ./
+COPY .env* ./
 
-# Create necessary directories
-RUN mkdir -p /app/data /app/models /app/logs
+# Setup Git LFS and configure git
+RUN git lfs install --skip-smudge \
+    && git config --global user.email "ci@company.com" \
+    && git config --global user.name "CI/CD"
 
-# Setup permissions
-RUN chmod +x scripts/*.sh
+# Create symbolic links for common commands
+RUN ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import torch; print('CUDA:', torch.cuda.is_available())" || exit 1
+# Setup permissions and make scripts executable
+RUN find /app/scripts -name "*.sh" -exec chmod +x {} \; \
+    && find /app/scripts -name "*.py" -exec chmod +x {} \; \
+    && chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Set up Python path and working directory
+RUN echo 'export PYTHONPATH=/app:$PYTHONPATH' >> ~/.bashrc
+
+# Health check - verify CUDA and all dependencies
+HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=3 \
+    CMD python3 -c "\
+import torch, torchvision, numpy, pandas, sklearn; \
+print('PyTorch version:', torch.__version__); \
+print('CUDA available:', torch.cuda.is_available()); \
+print('CUDA device count:', torch.cuda.device_count()); \
+if torch.cuda.is_available(): print('CUDA device:', torch.cuda.get_device_name(0)); \
+print('Dependencies OK')\
+" || exit 1
 
 # Default command
-CMD ["python", "-m", "src.training.train"]
+CMD ["python3", "-m", "scripts.training.train_ultra_simple", "--help"]

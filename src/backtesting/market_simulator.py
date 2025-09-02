@@ -196,6 +196,114 @@ class MarketSimulator:
         
         logger.info("MarketSimulator initialized with realistic execution model")
     
+    def execute_order_with_slippage(self, order: OrderExecution, market_data: pd.Series) -> ExecutedTrade:
+        """
+        Execute single order with realistic slippage and transaction costs
+        
+        Args:
+            order: Order to execute
+            market_data: Market data for the ticker
+            
+        Returns:
+            ExecutedTrade with all costs calculated
+        """
+        try:
+            # Get base price
+            base_price = self.cost_model._get_price(market_data, 'close')
+            
+            # Calculate slippage
+            slippage_data = self.cost_model.calculate_slippage(
+                order.ticker, order.shares, order.type, market_data
+            )
+            execution_price = slippage_data['slippage_price']
+            slippage_cost = abs(execution_price - base_price) * abs(order.shares)
+            
+            # Calculate spread cost
+            spread_cost = self.cost_model.calculate_spread_cost(
+                order.ticker, order.shares, market_data
+            )
+            
+            # Calculate commission
+            trade_value = abs(order.shares) * execution_price
+            commission = self.cost_model.calculate_commission(trade_value)
+            
+            # Handle limit orders
+            if order.type in ['LIMIT_BUY', 'LIMIT_SELL'] and order.limit_price:
+                if order.type == 'LIMIT_BUY' and execution_price > order.limit_price:
+                    # Limit buy price too low - partial fill or no fill
+                    execution_price = order.limit_price
+                elif order.type == 'LIMIT_SELL' and execution_price < order.limit_price:
+                    # Limit sell price too high - partial fill or no fill
+                    execution_price = order.limit_price
+            
+            # Create executed trade
+            executed_trade = ExecutedTrade(
+                ticker=order.ticker,
+                type=order.type,
+                shares=order.shares,
+                execution_price=execution_price,
+                commission=commission,
+                slippage=slippage_cost,
+                spread_cost=spread_cost,
+                timestamp=order.timestamp or datetime.now()
+            )
+            
+            logger.debug(f"Executed {order.type} {order.shares} {order.ticker} @ ${execution_price:.2f} "
+                        f"(commission: ${commission:.2f}, slippage: ${slippage_cost:.2f})")
+            
+            return executed_trade
+            
+        except Exception as e:
+            logger.error(f"Error executing order for {order.ticker}: {e}")
+            raise
+    
+    def calculate_transaction_costs(self, order: OrderExecution, market_data: pd.Series) -> Dict[str, float]:
+        """
+        Calculate comprehensive transaction costs for an order
+        
+        Returns:
+            Dictionary with breakdown of all costs
+        """
+        try:
+            base_price = self.cost_model._get_price(market_data, 'close')
+            trade_value = abs(order.shares) * base_price
+            
+            # Commission
+            commission = self.cost_model.calculate_commission(trade_value)
+            
+            # Slippage breakdown
+            slippage_data = self.cost_model.calculate_slippage(
+                order.ticker, order.shares, order.type, market_data
+            )
+            
+            # Spread cost
+            spread_cost = self.cost_model.calculate_spread_cost(
+                order.ticker, order.shares, market_data
+            )
+            
+            # Market impact components
+            total_slippage_cost = abs(slippage_data['slippage_price'] - base_price) * abs(order.shares)
+            
+            total_cost = commission + total_slippage_cost + spread_cost
+            
+            return {
+                'commission': commission,
+                'slippage': total_slippage_cost,
+                'slippage_pct': slippage_data['slippage_pct'],
+                'spread_cost': spread_cost,
+                'market_impact': {
+                    'temporary': slippage_data['temporary_impact'] * trade_value,
+                    'permanent': slippage_data['permanent_impact'] * trade_value,
+                    'size_impact': slippage_data['size_impact'] * trade_value
+                },
+                'total_cost': total_cost,
+                'cost_as_pct_of_trade': total_cost / trade_value if trade_value > 0 else 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error calculating transaction costs for {order.ticker}: {e}")
+            return {'total_cost': 0, 'error': str(e)}
+    
     def execute_orders(self, signals: List, market_data: pd.Series, portfolio) -> List[ExecutedTrade]:
         """
         Execute orders with realistic costs following exact OrderExecution class design

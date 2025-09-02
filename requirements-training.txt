@@ -1,0 +1,41 @@
+# Additional training-specific requirements
+torch>=2.4.0
+torchvision>=0.19.0
+torchaudio>=2.4.0
+
+# GPU monitoring and management
+nvidia-ml-py3>=12.535.0
+pynvml>=11.5.0
+gpustat>=1.1.1
+
+# MLflow with all extras
+mlflow[extras]>=2.8.0
+mlflow-skinny>=2.8.0
+
+# Experiment tracking and monitoring
+wandb>=0.16.0
+tensorboard>=2.15.0
+tensorboardX>=2.6.0
+
+# Advanced optimization
+transformers>=4.35.0
+accelerate>=0.24.0
+datasets>=2.14.0
+
+# Hyperparameter optimization
+optuna>=3.4.0
+hyperopt>=0.2.7
+ray[tune]>=2.8.0
+
+# Distributed training
+torch-distributed>=0.1.0
+torchmetrics>=1.2.0
+
+# Model serving
+torchserve>=0.8.2
+torch-model-archiver>=0.8.2
+
+# Development and debugging
+ipdb>=0.13.13
+line_profiler>=4.1.1
+memory_profiler>=0.61.0

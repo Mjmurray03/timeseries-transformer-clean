@@ -94,7 +94,7 @@ uvicorn src.api.main:app --reload --port 8000
 | Metric | Value | Note |
 |--------|-------|------|
 | Parameters | 2.3M | 4 layers, 8 attention heads |
-| Training Time | 3.5 hours | NVIDIA L4 GPU |
+| Training Time | 3.5 minutes | NVIDIA L4 GPU |
 | Validation RMSE | $0.268 | ~0.12% error |
 | Directional Accuracy | 55.9% | Barely better than random |
 | Inference Speed | <100ms | Single prediction |

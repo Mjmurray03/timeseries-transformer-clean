@@ -122,7 +122,7 @@ API documentation available at: http://localhost:8000/docs
 | Metric | Value | Note |
 |--------|-------|------|
 | Parameters | 2.3M | 4 layers, 8 attention heads |
-| Training Time | 3.5 hours | NVIDIA L4 GPU |
+| Training Time | 3.5 minutes | NVIDIA L4 GPU |
 | Validation RMSE | $0.268 | ~0.12% error |
 | Directional Accuracy | 55.9% | Barely better than random |
 | Inference Speed | <100ms | Single prediction |
@@ -318,21 +318,16 @@ If you use this code for research or education, please cite:
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
-
-- University of Arkansas Walton College for GPU resources
-- Professor Zach Steelman for guidance
-- Open source community for foundational libraries
 
 ## 📧 Contact
 
-Your Name - [your.email@uark.edu](mailto:your.email@uark.edu)
+Michael Murray - mjm085@uark.edu
 
-Project Link: [https://github.com/yourusername/timeseries-transformer](https://github.com/yourusername/timeseries-transformer)
+Project Link: [https://github.com/Mjmurray03/timeseries-transformer](https://github.com/Mjmurray03/timeseries-transformer)
 
 ---
 
-**Final Thought**: This project proves that building the infrastructure is often more valuable than achieving marginal model improvements. The complete MLOps pipeline, professional documentation, and honest failure analysis make this repository a learning resource worth more than a slightly profitable trading algorithm.
+**Final Thought**: This project proves that building the infrastructure is often more valuable than achieving marginal model improvements. The complete MLOps pipeline, professional documentation, and evaluation/analysis make this repository a great learning resource.
 
 ---
 

@@ -93,44 +93,130 @@ class ModelManager:
         self.models = {}
         self.scalers = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_dir = Path("models")
+        self.config_file = self.model_dir / "model_configs.json"
+        self.model_configs = self._load_model_configs()
         self._load_all_models()
+    
+    def _load_model_configs(self):
+        """Load model configurations from JSON file"""
+        if self.config_file.exists():
+            with open(self.config_file, 'r') as f:
+                configs = json.load(f)
+                return configs.get('model_configurations', {})
+        return {}
 
     def _load_all_models(self):
-        """Load all available models on startup"""
-        model_dir = Path("models")
+        """Load all available models on startup with dynamic configuration"""
+        # Import model loader utilities
+        from src.api.model_loader_fix import safe_load_checkpoint, get_model_config_from_checkpoint
+        
         scaler_dir = Path("scalers")
 
-        for model_path in model_dir.glob("*_best.pt"):
+        for model_path in self.model_dir.glob("*_best.pt"):
             ticker = model_path.stem.split("_")[0]
+            
+            try:
+                # Try to get model config from multiple sources
+                model_config = None
+                
+                # First, check if config exists in checkpoint itself
+                checkpoint_config = get_model_config_from_checkpoint(model_path, device=self.device)
+                if checkpoint_config:
+                    model_config = checkpoint_config
+                    print(f"Using config from checkpoint for {ticker}")
+                
+                # Second, check if config exists in model_configs.json
+                elif ticker in self.model_configs.get('single_stock_models', {}):
+                    model_config = self.model_configs['single_stock_models'][ticker]['parameters']
+                    print(f"Using config from model_configs.json for {ticker}")
+                
+                # Third, check multi-stock models (if applicable)
+                else:
+                    # Check if ticker might be part of a multi-stock model
+                    for model_name, config in self.model_configs.get('multi_stock_models', {}).items():
+                        if ticker.upper() in [t.upper() for t in config.get('data_config', {}).get('tickers', [])]:
+                            model_config = config['parameters']
+                            print(f"Using multi-stock config {model_name} for {ticker}")
+                            break
+                
+                # Create model with appropriate configuration
+                if model_config:
+                    model = self._create_model_with_config(model_config)
+                else:
+                    # Fallback to default configuration
+                    print(f"Using fallback configuration for {ticker}")
+                    model = self._create_model_with_config(self._get_fallback_config())
+                
+                # Load model state dict using safe loader
+                state_dict = safe_load_checkpoint(model, model_path, device=self.device)
+                
+                # Try loading with configured model
+                try:
+                    model.load_state_dict(state_dict)
+                    model.eval()
+                    model.to(self.device)
+                    self.models[ticker] = model
+                    print(f"Successfully loaded model for {ticker}")
+                except RuntimeError as load_error:
+                    # If size mismatch, try with fallback configuration (d_model=256)
+                    if "size mismatch" in str(load_error):
+                        print(f"Size mismatch for {ticker}, trying fallback config with d_model=256")
+                        fallback_model = self._create_model_with_config(self._get_fallback_config())
+                        fallback_model.load_state_dict(state_dict)
+                        fallback_model.eval()
+                        fallback_model.to(self.device)
+                        self.models[ticker] = fallback_model
+                        print(f"Successfully loaded model for {ticker} with fallback config")
+                    else:
+                        raise load_error
 
-            # Load model
-            model = self._create_model()
-            model.load_state_dict(torch.load(model_path, map_location=self.device))
-            model.eval()
-            model.to(self.device)
-            self.models[ticker] = model
+                # Load scaler
+                scaler_path = scaler_dir / f"scaler_{ticker}.json"
+                if scaler_path.exists():
+                    with open(scaler_path) as f:
+                        self.scalers[ticker] = json.load(f)
+                        
+            except Exception as e:
+                print(f"Error loading model for {ticker}: {e}")
+                continue
 
-            # Load scaler
-            scaler_path = scaler_dir / f"scaler_{ticker}.json"
-            if scaler_path.exists():
-                with open(scaler_path) as f:
-                    self.scalers[ticker] = json.load(f)
-
-    def _create_model(self):
-        """Create model architecture - imported from src.models"""
+    def _create_model_with_config(self, config):
+        """Create model with specific configuration"""
         from src.models.timeseries_transformer import TimeSeriesTransformer
-
+        
+        # Map configuration parameters to TimeSeriesTransformer arguments
+        # Handle both old parameter names and new standardized names
         return TimeSeriesTransformer(
-            input_dim=10,
-            hidden_dim=256,
-            num_heads=8,
-            num_layers=4,
-            dropout=0.1,
-            max_seq_length=60,
-            output_dim=3,
-            forecast_horizon=5,
-            use_attention_pooling=True,
+            input_dim=config.get('input_dim', 10),
+            hidden_dim=config.get('d_model', config.get('hidden_dim', 256)),  # Support both d_model and hidden_dim
+            num_heads=config.get('n_heads', config.get('num_heads', 8)),
+            num_layers=config.get('n_layers', config.get('num_layers', 4)),
+            dropout=config.get('dropout', 0.1),
+            max_seq_length=config.get('sequence_length', config.get('max_seq_length', 60)),
+            output_dim=config.get('output_dim', 3),
+            forecast_horizon=config.get('forecast_horizon', 5),
+            use_attention_pooling=config.get('use_attention_pooling', True),
+            # Note: d_ff is stored in config but not used as TimeSeriesTransformer computes it internally
         )
+    
+    def _get_fallback_config(self):
+        """Get default fallback configuration"""
+        return {
+            'input_dim': 10,
+            'd_model': 256,
+            'n_heads': 8,
+            'n_layers': 4,
+            'dropout': 0.1,
+            'sequence_length': 60,
+            'output_dim': 3,
+            'forecast_horizon': 5,
+            'use_attention_pooling': True
+        }
+    
+    def _create_model(self):
+        """Legacy method for backward compatibility"""
+        return self._create_model_with_config(self._get_fallback_config())
 
     @torch.no_grad()
     def predict(self, ticker: str, features: np.ndarray) -> Dict:
@@ -141,8 +227,29 @@ class ModelManager:
         model = self.models[ticker]
         scaler = self.scalers[ticker]
 
+        # Handle different scaler formats
+        if "feat_mean" in scaler:
+            # New format with separate feature and target scalers
+            feat_mean = np.array(scaler["feat_mean"])
+            feat_std = np.array(scaler["feat_std"])
+            tgt_mean = np.array(scaler["tgt_mean"])
+            tgt_std = np.array(scaler["tgt_std"])
+        else:
+            # Legacy format with combined mean/std arrays
+            mean_array = np.array(scaler["mean"])
+            std_array = np.array(scaler["std"])
+            
+            # All values are features (input features include Close price)
+            feat_mean = mean_array  # All features
+            feat_std = std_array    # All features
+            
+            # Target scaling uses Close price statistics (index 3 based on feature_names)
+            close_idx = 3  # 'Close' is at index 3 in feature_names
+            tgt_mean = mean_array[close_idx]
+            tgt_std = std_array[close_idx]
+
         # Standardize features
-        features_scaled = (features - scaler["feat_mean"]) / scaler["feat_std"]
+        features_scaled = (features - feat_mean) / feat_std
 
         # Convert to tensor
         x = torch.FloatTensor(features_scaled).unsqueeze(0).to(self.device)
@@ -152,14 +259,14 @@ class ModelManager:
         pred_scaled = output.cpu().numpy()[0]
 
         # De-standardize predictions
-        pred_dollars = pred_scaled * scaler["tgt_std"] + scaler["tgt_mean"]
+        pred_dollars = pred_scaled * tgt_std + tgt_mean
 
         # Calculate confidence intervals (using dropout uncertainty)
         model.train()  # Enable dropout
         predictions = []
         for _ in range(100):
             out = model(x).cpu().numpy()[0]
-            predictions.append(out * scaler["tgt_std"] + scaler["tgt_mean"])
+            predictions.append(out * tgt_std + tgt_mean)
         model.eval()
 
         predictions = np.array(predictions)

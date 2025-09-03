@@ -207,7 +207,7 @@ class ModelCheckpoint:
         if not best_path.exists():
             raise FileNotFoundError(f"Best checkpoint not found: {best_path}")
 
-        checkpoint = torch.load(best_path, map_location="cpu")
+        checkpoint = torch.load(best_path, map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
 
         logger.info(f"Loaded best checkpoint from epoch {checkpoint['epoch']}")

@@ -55,6 +55,9 @@ httpx>=0.25.0  # For API client/testing
 matplotlib>=3.7.0
 seaborn>=0.12.0
 
+# Experiment Tracking and MLOps
+wandb>=0.15.0
+
 # Testing
 pytest>=7.4.0
 

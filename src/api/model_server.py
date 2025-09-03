@@ -85,7 +85,7 @@ class ModelServer:
                 logger.info(f"Loaded TorchScript model from {self.model_path}")
             else:
                 # Load regular PyTorch model
-                model = torch.load(str(self.model_path), map_location=self.device)
+                model = torch.load(str(self.model_path), map_location=self.device, weights_only=False)
                 logger.info(f"Loaded PyTorch model from {self.model_path}")
 
             model.eval()

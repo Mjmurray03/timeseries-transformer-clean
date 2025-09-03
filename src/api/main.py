@@ -35,9 +35,49 @@ app.add_middleware(
 @app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
 async def custom_docs():
     """Serve custom Swagger UI with educational features"""
-    docs_path = Path(__file__).parent / "custom_docs.html"
-    with open(docs_path, 'r', encoding='utf-8') as f:
-        return f.read()
+    import os
+    
+    # Get the absolute path to the HTML file
+    current_dir = Path(__file__).parent
+    html_path = current_dir / "custom_docs.html"
+    
+    # Debug logging
+    print(f"Looking for custom docs at: {html_path}")
+    print(f"File exists: {html_path.exists()}")
+    
+    if html_path.exists():
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                print(f"Successfully loaded custom HTML: {len(content)} characters")
+                return HTMLResponse(content=content)
+        except Exception as e:
+            print(f"Error reading custom HTML: {e}")
+            # Fall back to default
+    
+    # If custom file not found or error, use default
+    print("Falling back to default Swagger UI")
+    from fastapi.openapi.docs import get_swagger_ui_html
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title=app.title + " - Documentation"
+    )
+
+
+# Debug endpoint for path troubleshooting
+@app.get("/debug/paths", include_in_schema=False)
+async def debug_paths():
+    """Debug endpoint to check file paths"""
+    current_dir = Path(__file__).parent
+    html_path = current_dir / "custom_docs.html"
+    
+    return {
+        "current_dir": str(current_dir),
+        "html_path": str(html_path),
+        "file_exists": html_path.exists(),
+        "absolute_path": str(html_path.absolute()),
+        "parent_dir_contents": [str(f) for f in current_dir.iterdir()] if current_dir.exists() else []
+    }
 
 
 # REQUEST/RESPONSE MODELS

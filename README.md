@@ -88,6 +88,34 @@ python scripts/backtesting/run_backtest.py --model models/best_model.pt
 uvicorn src.api.main:app --reload --port 8000
 ```
 
+## 🚀 Quick Start (Under 5 Minutes!)
+
+### Automated Installation (Linux/Mac)
+```bash
+git clone https://github.com/Mjmurray03/timeseries-transformer-clean
+cd timeseries-transformer-clean
+bash install.sh
+source venv/bin/activate
+```
+
+### Test the Installation
+```bash
+# Verify installation
+python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+python -c "import fastapi; print(f'FastAPI: {fastapi.__version__}')"
+
+# Download sample data (2 stocks, 2 years)
+python scripts/download_stock_data.py --tickers AAPL,MSFT --years 2
+
+# Quick training test (should take ~3.5 minutes)
+python scripts/training/train_ultra_simple.py --epochs 10 --ticker AAPL
+
+# Start API server
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+API documentation available at: http://localhost:8000/docs
+
 ## 📈 Results and Performance
 
 ### Model Metrics

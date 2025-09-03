@@ -1,11 +1,11 @@
 # =============================================================================
 # CORE DEPENDENCIES - Time-Series Transformer Project
 # =============================================================================
-# This file contains only essential dependencies for the core functionality.
+# This file contains essential dependencies for the core functionality.
 # For development and optional features, see requirements-dev.txt
 
 # Deep Learning Framework
-torch>=2.4.0
+torch>=2.0.0
 torchvision>=0.19.0
 
 # Data Processing Stack
@@ -15,7 +15,7 @@ scikit-learn>=1.3.0
 scipy>=1.11.0
 
 # Financial Data Collection
-yfinance>=0.2.28
+yfinance>=0.2.0
 requests>=2.31.0
 
 # Data Storage and Serialization
@@ -45,6 +45,25 @@ ratelimit>=2.2.1
 
 # Data Validation
 cerberus>=1.3.4
+
+# API Framework (Required for production deployment)
+fastapi>=0.100.0
+uvicorn>=0.23.0
+httpx>=0.25.0  # For API client/testing
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Testing
+pytest>=7.4.0
+
+# Code Formatting
+black>=23.0.0
+isort>=5.12.0
+
+# Caching
+redis>=5.0.0
 
 # Technical Analysis (if available)
 # Note: TA-Lib requires system-level installation

@@ -9,6 +9,7 @@ import pandas as pd
 import redis
 import torch
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 from .validators import validate_and_reshape_features
@@ -17,7 +18,9 @@ from .validators import validate_and_reshape_features
 app = FastAPI(
     title="TimeSeries Transformer API",
     version="1.0.0",
-    description="Production API for stock price predictions using advanced transformer models for time series forecasting",
+    description="🎓 Advanced AI-powered stock price prediction system designed for educational use. Features transformer neural networks, real-time predictions, and comprehensive backtesting capabilities.",
+    docs_url=None,  # Disable default docs
+    redoc_url=None,  # Disable ReDoc
 )
 
 # CORS for web frontends
@@ -28,7 +31,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Enhanced API documentation will use default FastAPI Swagger UI
+# Custom documentation endpoint
+@app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
+async def custom_docs():
+    """Serve custom Swagger UI with educational features"""
+    docs_path = Path(__file__).parent / "custom_docs.html"
+    with open(docs_path, 'r', encoding='utf-8') as f:
+        return f.read()
 
 
 # REQUEST/RESPONSE MODELS
@@ -322,9 +331,13 @@ cache_manager = CacheManager()
 # ENDPOINTS
 
 
-@app.get("/health")
+@app.get("/health", 
+         summary="🏥 System Health Check", 
+         description="**Educational Purpose**: Check if the API server is running properly and view system status.\\n\\n" +
+                    "**What it returns**: Server status, available AI models, hardware info, and caching status.\\n\\n" +
+                    "**When to use**: Always start here! This tells you if everything is working before making predictions.")
 async def health_check():
-    """Health check endpoint"""
+    """🏥 Check API health and system status - Perfect starting point for students!"""
     return {
         "status": "healthy",
         "cuda_available": torch.cuda.is_available(),
@@ -333,10 +346,19 @@ async def health_check():
     }
 
 
-@app.post("/predict", response_model=PredictionResponse)
+@app.post("/predict", response_model=PredictionResponse, 
+          summary="🎯 AI Stock Price Prediction",
+          description="**🤖 What this does**: Uses a transformer neural network (like GPT, but for numbers!) to predict future stock prices based on historical data.\\n\\n" +
+                     "**📊 Input formats supported**:\\n" +
+                     "- Flat list: 600 numbers `[day1_feat1, day1_feat2, ..., day60_feat10]`\\n" +
+                     "- 2D array: 60 days × 10 features `[[day1_features], [day2_features], ...]`\\n\\n" +
+                     "**🎓 Learning opportunity**: This is where the magic happens! The AI model processes 60 days of stock data (price, volume, etc.) and predicts the next few days.\\n\\n" +
+                     "**⚡ Try it**: Click 'Try it out' below and use the example data to see a real AI prediction!")
 async def predict(request: PredictionRequest):
     """
-    Generate price predictions for given features with robust input handling.
+    🎯 Generate AI-powered stock price predictions using transformer neural networks!
+    
+    **Perfect for students**: This endpoint showcases how modern AI can analyze financial data patterns.
     
     Accepts features in two formats:
     1. Flat list (600 elements): Features arranged sequentially
@@ -465,9 +487,14 @@ async def predict(request: PredictionRequest):
         )
 
 
-@app.post("/backtest", response_model=BacktestResponse)
+@app.post("/backtest", response_model=BacktestResponse,
+          summary="📈 Historical Performance Testing", 
+          description="**📚 What is backtesting?**: Test how well our AI model would have performed in the past using real historical data.\\n\\n" +
+                     "**🎓 Why it matters**: Before trusting an AI model with real money, we test it on historical data to see if it actually works!\\n\\n" +
+                     "**📊 What you get**: Returns, win rate, risk metrics, and trading statistics.\\n\\n" +
+                     "**🔬 Educational value**: Learn how quantitative finance professionals validate their trading algorithms.")
 async def run_backtest(request: BacktestRequest, background_tasks: BackgroundTasks):
-    """Run backtesting simulation"""
+    """📈 Run historical backtesting simulation - See how the AI performed in the past!"""
 
     try:
         # Import backtesting engine
@@ -496,9 +523,14 @@ async def run_backtest(request: BacktestRequest, background_tasks: BackgroundTas
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/model-info", response_model=ModelInfoResponse)
+@app.get("/model-info", response_model=ModelInfoResponse,
+         summary="🧠 AI Model Architecture Info",
+         description="**🤖 Peek inside the AI**: Learn about the neural network architecture powering the predictions.\\n\\n" +
+                    "**📖 Technical details**: Model parameters, architecture type, training info, and performance metrics.\\n\\n" +
+                    "**🎓 Educational value**: Understand what makes this AI tick - transformer layers, attention mechanisms, and more!\\n\\n" +
+                    "**💡 Fun fact**: Our model has thousands of parameters that learned patterns from historical stock data.")
 async def model_info():
-    """Get information about loaded models"""
+    """🧠 Get detailed information about the AI model architecture and capabilities"""
     return ModelInfoResponse(
         model_version="1.0.0",
         architecture="TimeSeriesTransformer",

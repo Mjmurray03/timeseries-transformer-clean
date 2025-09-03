@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TimeSeries Transformer API - Interactive Documentation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css">
+    <style>
+        /* Professional Dark Theme */
+        body { 
+            margin: 0; 
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        /* Custom Header */
+        .custom-header {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .custom-header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .custom-header p {
+            margin: 0.5rem 0 0 0;
+            opacity: 0.95;
+            font-size: 1.1rem;
+        }
+        
+        /* Educational Info Box */
+        .info-section {
+            background: #1e1e2e;
+            border-left: 4px solid #667eea;
+            padding: 1.5rem;
+            margin: 2rem;
+            border-radius: 8px;
+            color: #e0e0e0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .info-section h2 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        
+        .endpoint-guide {
+            background: #2a2a3e;
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+        }
+        
+        .endpoint-guide code {
+            background: #1a1a2e;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #64ffda;
+        }
+        
+        /* Swagger UI Customization */
+        .swagger-ui {
+            background: transparent !important;
+        }
+        
+        .swagger-ui .topbar {
+            display: none !important;
+        }
+        
+        .swagger-ui .info {
+            margin: 20px !important;
+            background: #1e1e2e !important;
+            padding: 20px !important;
+            border-radius: 8px !important;
+            border: 1px solid #333 !important;
+        }
+        
+        .swagger-ui .info .title {
+            color: #fff !important;
+        }
+        
+        .swagger-ui .scheme-container {
+            background: #1e1e2e !important;
+            padding: 15px !important;
+            border-radius: 8px !important;
+            margin: 20px !important;
+        }
+        
+        .swagger-ui .opblock.opblock-get .opblock-summary {
+            background: rgba(72, 203, 71, 0.15) !important;
+            border-color: #48cb47 !important;
+        }
+        
+        .swagger-ui .opblock.opblock-post .opblock-summary {
+            background: rgba(73, 154, 255, 0.15) !important;
+            border-color: #499aff !important;
+        }
+        
+        .swagger-ui .btn.execute {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important;
+            border: none !important;
+            color: white !important;
+            font-weight: 600 !important;
+            padding: 8px 20px !important;
+            border-radius: 6px !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .swagger-ui .btn.execute:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4) !important;
+        }
+        
+        .swagger-ui select, .swagger-ui input[type=text], .swagger-ui textarea {
+            background: #2a2a3e !important;
+            border: 1px solid #444 !important;
+            color: #fff !important;
+            border-radius: 4px !important;
+        }
+        
+        .swagger-ui .opblock .opblock-section-header {
+            background: #252538 !important;
+        }
+        
+        .swagger-ui .opblock.opblock-post {
+            background: #1a1a2e !important;
+            border-radius: 8px !important;
+        }
+        
+        .swagger-ui .opblock.opblock-get {
+            background: #1a1a2e !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Quick Start Guide Panel */
+        .quick-start {
+            position: fixed;
+            right: 20px;
+            top: 100px;
+            width: 300px;
+            background: #1e1e2e;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+            border: 1px solid #667eea;
+            color: #e0e0e0;
+            z-index: 100;
+        }
+        
+        .quick-start h3 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        
+        .step {
+            background: #2a2a3e;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border-left: 3px solid #764ba2;
+        }
+        
+        .step-number {
+            display: inline-block;
+            width: 25px;
+            height: 25px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            line-height: 25px;
+            border-radius: 50%;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="custom-header">
+        <h1>🚀 TimeSeries Transformer API</h1>
+        <p>Advanced AI-Powered Stock Price Prediction System</p>
+        <p style="font-size: 0.9rem; margin-top: 1rem; opacity: 0.9;">
+            Built with PyTorch Transformers | Real-time Predictions | Educational Interface
+        </p>
+    </div>
+    
+    <div class="info-section">
+        <h2>📚 Student Guide: Understanding the API</h2>
+        <p>This API uses transformer neural networks (similar to GPT) to predict stock prices based on historical data patterns.</p>
+        
+        <div class="endpoint-guide">
+            <h3>🔍 What Each Endpoint Does:</h3>
+            <ul>
+                <li><code>GET /health</code> - Checks if the API is running and which models are loaded</li>
+                <li><code>GET /model-info</code> - Shows details about the AI model architecture and capabilities</li>
+                <li><code>POST /predict</code> - Makes actual price predictions using the transformer model</li>
+                <li><code>POST /backtest</code> - Tests how well the model would have performed on historical data</li>
+            </ul>
+        </div>
+        
+        <div class="endpoint-guide">
+            <h3>🎓 How to Use This Interface:</h3>
+            <ol>
+                <li>Click on any endpoint below to expand it</li>
+                <li>Click "Try it out" to enable the input fields</li>
+                <li>Modify the example data or use the provided samples</li>
+                <li>Click "Execute" to send the request</li>
+                <li>View the response below - it shows what the AI predicted!</li>
+            </ol>
+        </div>
+    </div>
+    
+    <div class="quick-start">
+        <h3>⚡ Quick Start</h3>
+        <div class="step">
+            <span class="step-number">1</span>
+            Start with <code>/health</code>
+        </div>
+        <div class="step">
+            <span class="step-number">2</span>
+            Check <code>/model-info</code>
+        </div>
+        <div class="step">
+            <span class="step-number">3</span>
+            Try a prediction!
+        </div>
+        <p style="margin-top: 1rem; font-size: 0.85rem; opacity: 0.8;">
+            💡 Tip: The prediction endpoint expects 60 timesteps of data with 10 features each (price, volume, etc.)
+        </p>
+    </div>
+    
+    <div id="swagger-ui"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-standalone-preset.js"></script>
+    <script>
+        window.onload = function() {
+            const ui = SwaggerUIBundle({
+                url: "/openapi.json",
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                ],
+                layout: "StandaloneLayout",
+                requestInterceptor: (request) => {
+                    request.headers['X-Custom-Header'] = 'TimeSeries-Transformer-API';
+                    return request;
+                },
+                onComplete: () => {
+                    console.log("Swagger UI loaded successfully");
+                }
+            });
+            window.ui = ui;
+        }
+    </script>
+</body>
+</html>

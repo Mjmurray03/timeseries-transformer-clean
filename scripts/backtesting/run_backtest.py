@@ -81,7 +81,12 @@ def load_predictions(predictions_path: Path) -> pd.DataFrame:
             df.set_index("Date", inplace=True)
         elif not isinstance(df.index, pd.DatetimeIndex):
             # Try to convert index to datetime
-            df.index = pd.to_datetime(df.index)
+            if not pd.api.types.is_datetime64_any_dtype(df.index):
+                try:
+                    df.index = pd.to_datetime(df.index)
+                except Exception:
+                    # Skip index conversion if it fails
+                    pass
 
         logging.info(f"Loaded predictions: {len(df)} rows, {len(df.columns)} columns")
         logging.info(f"Date range: {df.index[0]} to {df.index[-1]}")
@@ -871,8 +876,8 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
     market_data_path = Path(args.market_data_path)
 
     if not predictions_path.exists():
-        print(f"\n❌ Error: Predictions file not found: {predictions_path}")
-        print("\n💡 Suggestions:")
+        print(f"\n[FAIL] Error: Predictions file not found: {predictions_path}")
+        print("\nSuggestions:")
         print("   1. Run a model training first:")
         print("      python scripts/training/train_ultra_simple.py --ticker AAPL")
         print("   2. Generate predictions:")
@@ -884,8 +889,8 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
         sys.exit(1)
 
     if not market_data_path.exists():
-        print(f"\n❌ Error: Market data file not found: {market_data_path}")
-        print("\n💡 Suggestions:")
+        print(f"\n[FAIL] Error: Market data file not found: {market_data_path}")
+        print("\nSuggestions:")
         print("   1. Download market data first:")
         print("      python scripts/data/download_data.py --ticker AAPL")
         print("   2. Or run the complete demo:")
@@ -1028,13 +1033,13 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
             # Check Sharpe ratio
             sharpe_target = 0.5
             sharpe_achieved = results["metrics"]["sharpe_ratio"]
-            sharpe_status = "✓" if sharpe_achieved > sharpe_target else "✗"
+            sharpe_status = "[OK]" if sharpe_achieved > sharpe_target else "[FAIL]"
             logging.info(f"Sharpe Ratio > {sharpe_target}: {sharpe_status} ({sharpe_achieved:.2f})")
 
             # Check max drawdown
             drawdown_limit = 0.15
             drawdown_achieved = results["metrics"]["max_drawdown"]
-            drawdown_status = "✓" if drawdown_achieved < drawdown_limit else "✗"
+            drawdown_status = "[OK]" if drawdown_achieved < drawdown_limit else "[FAIL]"
             logging.info(
                 f"Max Drawdown < {drawdown_limit:.1%}: {drawdown_status} ({drawdown_achieved:.1%})"
             )
@@ -1044,24 +1049,24 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
             estimated_costs = total_trades * 5  # $5 per trade estimate
             gross_pnl = results["metrics"]["final_value"] - config.initial_capital
             cost_ratio = estimated_costs / max(gross_pnl, 1) if gross_pnl > 0 else float("inf")
-            cost_status = "✓" if cost_ratio < 0.20 else "✗"
+            cost_status = "[OK]" if cost_ratio < 0.20 else "[FAIL]"
             logging.info(f"Transaction Costs < 20% of P&L: {cost_status} ({cost_ratio:.1%})")
 
-            logging.info(f"Results reproducible: ✓ (deterministic execution)")
-            logging.info(f"No look-ahead bias: ✓ (signal generation validated)")
+            logging.info(f"Results reproducible: [OK] (deterministic execution)")
+            logging.info(f"No look-ahead bias: [OK] (signal generation validated)")
 
         logging.info(f"\nBacktest complete! Results saved to {output_dir}")
         logging.info(f"Log file: {log_file}")
 
-        print(f"\n✅ Backtesting completed successfully!")
-        print(f"📊 Results: {output_dir}")
+        print(f"\n[OK] Backtesting completed successfully!")
+        print(f"Results: {output_dir}")
         print(
-            f"📈 Summary: Check {results_file if not args.walk_forward else 'walk_forward_results_*.json'}"
+            f"Summary: Check {results_file if not args.walk_forward else 'walk_forward_results_*.json'}"
         )
 
     except Exception as e:
         logging.error(f"Backtesting failed: {str(e)}", exc_info=True)
-        print(f"\n❌ Backtesting failed: {e}")
+        print(f"\n[FAIL] Backtesting failed: {e}")
         raise
 
 

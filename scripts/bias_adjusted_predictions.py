@@ -48,7 +48,7 @@ class BiasAdjustedPredictor:
 
     def load_model(self, model_path):
         """Load the trained model"""
-        checkpoint = torch.load(model_path, map_location=self.device)
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
 
         # Initialize model
         self.model = TimeSeriesTransformer(
@@ -415,7 +415,7 @@ def main():
         # Single ticker analysis
         ticker = args.ticker.upper()
         predictor = BiasAdjustedPredictor(
-            model_path=args.model_path or "model_extended_best.pt",
+            model_path=args.model_path or f"models/model_{ticker}_best.pt",
             ticker=ticker
         )
 

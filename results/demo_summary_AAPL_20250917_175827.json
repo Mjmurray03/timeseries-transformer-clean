@@ -1,0 +1,30 @@
+{
+  "demo_info": {
+    "ticker": "AAPL",
+    "mode": "Quick Demo",
+    "epochs": 5,
+    "start_time": "2025-09-17T17:58:27.931723",
+    "end_time": "2025-09-17T17:59:48.164087",
+    "duration_seconds": 80.232364,
+    "log_file": "C:\\timeseries-transformer-clean-1\\logs\\demo_AAPL_20250917_175827.log"
+  },
+  "execution_summary": {
+    "steps_completed": 2,
+    "steps_failed": 2,
+    "success_rate": 0.5
+  },
+  "steps_completed": [
+    "Download AAPL stock data",
+    "Train AAPL model"
+  ],
+  "errors_encountered": [
+    "Generate AAPL predictions: Return code 1",
+    "Run AAPL backtest: Return code 1"
+  ],
+  "files_created": [
+    "  [OK] Stock data: AAPL.csv (149,012 bytes)",
+    "  [OK] Trained model: model_AAPL_best.pt (10,234,987 bytes)",
+    "  [OK] Scaler parameters: scaler_AAPL.json (733 bytes)",
+    "  [OK] Latest predictions: predictions_20250902_060638.json (2,916 bytes)"
+  ]
+}

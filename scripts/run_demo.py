@@ -269,17 +269,21 @@ class DemoRunner:
         """Step 3: Generate predictions using the trained model."""
         self.logger.info("\n[STEP 3] Generating predictions...")
 
-        # Use the bias-adjusted prediction script
+        # Use the bias-adjusted prediction script with ticker-based model
         success, stdout, stderr = self.run_command(
-            f"python scripts/bias_adjusted_predictions.py --ticker {self.ticker}",
+            f"python scripts/bias_adjusted_predictions.py --ticker {self.ticker} --model-path models/model_{self.ticker}_best.pt",
             f"Generate {self.ticker} predictions",
             timeout=120
         )
 
         if success:
-            # Check for prediction outputs
+            # Check for prediction outputs - try ticker-specific first
             predictions_dir = PROJECT_ROOT / "predictions"
-            prediction_files = list(predictions_dir.glob("predictions_*.json"))
+            prediction_files = list(predictions_dir.glob(f"prediction_{self.ticker}_*.json"))
+
+            if not prediction_files:
+                # Fallback to general predictions
+                prediction_files = list(predictions_dir.glob("predictions_*.json"))
 
             if prediction_files:
                 latest_predictions = max(prediction_files, key=lambda x: x.stat().st_mtime)
@@ -316,16 +320,19 @@ class DemoRunner:
             self.logger.warning("Skipping backtest - missing required files")
             return True  # Not a failure, just skipped
 
-        # Generate sample predictions for backtesting if not available
+        # First check if a new predictions file was just created
+        import glob
         predictions_dir = PROJECT_ROOT / "predictions"
-        prediction_files = list(predictions_dir.glob("predictions_*.json"))
-
-        if not prediction_files:
-            self.logger.warning("Skipping backtest - no predictions available")
-            return True
-
-        # Use latest predictions for backtest
-        latest_predictions = max(prediction_files, key=lambda x: x.stat().st_mtime)
+        prediction_files = glob.glob(str(predictions_dir / f"prediction_{self.ticker}_*.json"))
+        if prediction_files:
+            latest_predictions = Path(max(prediction_files, key=os.path.getmtime))
+        else:
+            # Fallback to any predictions file
+            prediction_files = list(predictions_dir.glob("predictions_*.json"))
+            if not prediction_files:
+                self.logger.warning("Skipping backtest - no predictions available")
+                return True
+            latest_predictions = max(prediction_files, key=lambda x: x.stat().st_mtime)
 
         # Run a simple backtest
         from datetime import date, timedelta

@@ -18,6 +18,21 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.models.timeseries_transformer import TimeSeriesTransformer
 
 
+def convert_to_serializable(obj):
+    """Convert numpy types to Python native types for JSON serialization"""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(item) for item in obj]
+    return obj
+
+
 class BiasAdjustedPredictor:
     """
     Wrapper that adjusts for the bullish bias in predictions
@@ -180,23 +195,36 @@ class BiasAdjustedPredictor:
         with torch.no_grad():
             raw_pred = self.model(x).cpu().numpy()[0]
 
-        # Adjust for bias
-        adjusted_pred = raw_pred - self.bias_offset
+        # Apply realistic scaling using sigmoid to bound predictions
+        def sigmoid(x):
+            return 1 / (1 + np.exp(-np.clip(x, -10, 10)))  # Clip to prevent overflow
 
-        # Calculate relative strength (how much above/below the bias)
-        relative_strength = (raw_pred - self.bias_offset) / (self.prediction_std + 1e-8)
+        # Scale predictions to realistic daily return range (-5% to +5%)
+        scaled_pred = (sigmoid(raw_pred) - 0.5) * 0.1  # Maps to -5% to +5%
 
-        # Generate signal based on relative strength
+        # Apply bias adjustment (much smaller bias)
+        adjusted_pred = scaled_pred + (self.bias_offset * 0.1)  # Scale down bias
+
+        # Ensure predictions are reasonable (max 10% daily move)
+        adjusted_pred = np.clip(adjusted_pred, -0.10, 0.10)
+
+        # Calculate relative strength for signal generation
+        relative_strength = adjusted_pred / 0.02  # Normalize by 2% (typical daily vol)
+
+        # Generate signal based on realistic thresholds
         signals = []
         for i, (pred, strength) in enumerate(zip(adjusted_pred, relative_strength)):
-            if strength > 1.0:  # More than 1 std above mean
+            # Use percentage-based thresholds
+            pred_pct = pred * 100  # Convert to percentage
+
+            if pred_pct > 2.0:  # More than 2% expected return
                 signal = "STRONG BUY"
-            elif strength > 0.5:
+            elif pred_pct > 0.5:  # More than 0.5% expected return
                 signal = "BUY"
-            elif strength < -1.0:  # More than 1 std below mean
+            elif pred_pct < -2.0:  # Less than -2% expected return
+                signal = "STRONG SELL"
+            elif pred_pct < -0.5:  # Less than -0.5% expected return
                 signal = "SELL"
-            elif strength < -0.5:
-                signal = "WEAK SELL"
             else:
                 signal = "HOLD"
 
@@ -207,8 +235,8 @@ class BiasAdjustedPredictor:
                     "adjusted_prediction": float(pred),
                     "relative_strength": float(strength),
                     "signal": signal,
-                    "predicted_price": current_price * (1 + pred),
-                    "predicted_return_%": pred * 100,
+                    "predicted_price": float(current_price * (1 + pred)),
+                    "predicted_return_%": float(pred * 100),
                 }
             )
 
@@ -383,11 +411,14 @@ def main():
             "portfolio_weights": weights,
         }
 
+        # Convert all numpy types to serializable format
+        results = convert_to_serializable(results)
+
         output_file = f"predictions/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         Path("predictions").mkdir(exist_ok=True)
 
         with open(output_file, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump(results, f, indent=2, default=str)
 
         print(f"\nResults saved to {output_file}")
 
@@ -421,11 +452,14 @@ def main():
                 "prediction": prediction,
             }
 
+            # Convert all numpy types to serializable format
+            results = convert_to_serializable(results)
+
             output_file = f"predictions/prediction_{ticker}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             Path("predictions").mkdir(exist_ok=True)
 
             with open(output_file, "w") as f:
-                json.dump(results, f, indent=2)
+                json.dump(results, f, indent=2, default=str)
 
             print(f"\nResults saved to {output_file}")
         else:

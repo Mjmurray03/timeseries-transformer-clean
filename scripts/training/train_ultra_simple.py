@@ -327,9 +327,24 @@ class SimpleTrainer:
         return metrics
 
     def save_checkpoint(self, epoch: int, metrics: Dict, save_dir: Path):
-        """Save model checkpoint with metadata"""
+        """Save model checkpoint with comprehensive metadata"""
         save_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_path = save_dir / f"model_{self.ticker}_best.pt"
+
+        # Get comprehensive model configuration
+        if hasattr(self.model, "get_model_info"):
+            model_config = self.model.get_model_info()
+        else:
+            # Fallback for basic model info
+            model_config = {
+                "input_dim": getattr(self.model, "input_dim", 21),
+                "hidden_dim": getattr(self.model, "hidden_dim", 128),
+                "num_heads": getattr(self.model, "num_heads", 4),
+                "num_layers": getattr(self.model, "num_layers", 4),
+                "output_dim": getattr(self.model, "output_dim", 3),
+                "forecast_horizon": getattr(self.model, "forecast_horizon", 3),
+                "dropout": getattr(self.model, "dropout", 0.1),
+            }
 
         checkpoint = {
             "epoch": epoch,
@@ -338,13 +353,22 @@ class SimpleTrainer:
             "metrics": metrics,
             "ticker": self.ticker,
             "timestamp": datetime.now().isoformat(),
-            "model_config": (
-                self.model.get_model_info() if hasattr(self.model, "get_model_info") else {}
-            ),
+            "model_config": model_config,
+            # Additional metadata for compatibility
+            "training_args": {
+                "hidden_dim": model_config.get("hidden_dim", 128),
+                "num_heads": model_config.get("num_heads", 4),
+                "num_layers": model_config.get("num_layers", 4),
+                "output_dim": model_config.get("output_dim", 3),
+                "input_dim": model_config.get("input_dim", 21),
+                "forecast_horizon": model_config.get("forecast_horizon", 3),
+                "dropout": model_config.get("dropout", 0.1),
+            }
         }
 
         torch.save(checkpoint, checkpoint_path)
         logging.info(f"Saved checkpoint to {checkpoint_path}")
+        logging.info(f"Model configuration: {model_config}")
 
 
 def setup_logging(ticker: str):

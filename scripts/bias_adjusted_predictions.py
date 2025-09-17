@@ -47,24 +47,56 @@ class BiasAdjustedPredictor:
         self.calibrate_bias()
 
     def load_model(self, model_path):
-        """Load the trained model"""
+        """Load model with architecture detection"""
         checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
 
-        # Initialize model
+        # Detect model configuration from checkpoint
+        if "model_config" in checkpoint and checkpoint["model_config"]:
+            model_config = checkpoint["model_config"]
+            print(f"Using saved model configuration: {model_config}")
+        else:
+            # Try to infer from state dict
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
+            if "input_embedding.projection.weight" in state_dict:
+                weight_shape = state_dict["input_embedding.projection.weight"].shape
+                hidden_dim = weight_shape[0]  # First dimension is hidden_dim
+                input_dim = weight_shape[1]  # Second dimension is input features
+            else:
+                # Default values to match training script defaults
+                hidden_dim = 128  # Match training default
+                input_dim = 21
+
+            model_config = {
+                "input_dim": input_dim,
+                "hidden_dim": hidden_dim,
+                "num_heads": 4,
+                "num_layers": 4,
+                "forecast_horizon": 3,
+                "output_dim": 3,
+            }
+            print(f"Inferred model configuration: {model_config}")
+
+        # Initialize model with detected configuration
         self.model = TimeSeriesTransformer(
-            input_dim=21,
-            hidden_dim=256,
-            num_heads=8,
-            num_layers=4,
-            forecast_horizon=3,
-            output_dim=3,
+            input_dim=model_config.get("input_dim", 21),
+            hidden_dim=model_config.get("hidden_dim", 128),
+            num_heads=model_config.get("num_heads", 4),
+            num_layers=model_config.get("num_layers", 4),
+            forecast_horizon=model_config.get("forecast_horizon", 3),
+            output_dim=model_config.get("output_dim", 3),
         )
 
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        # Load the state dict
+        if "model_state_dict" in checkpoint:
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            self.model.load_state_dict(checkpoint)
+
         self.model.to(self.device)
         self.model.eval()
 
         print(f"Model loaded from {model_path}")
+        print(f"Architecture: input_dim={model_config.get('input_dim')}, hidden_dim={model_config.get('hidden_dim')}")
 
     def calibrate_bias(self):
         """Calculate the bias offset from recent predictions"""

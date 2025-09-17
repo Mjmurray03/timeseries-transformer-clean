@@ -305,7 +305,33 @@ class DemoRunner:
                 self.logger.info("[OK] Predictions generated successfully")
                 return True
 
+        # Enhanced error handling with diagnostics
         self.logger.error("Prediction generation failed")
+
+        # Provide detailed diagnostic information
+        model_path = PROJECT_ROOT / "models" / f"model_{self.ticker}_best.pt"
+        if not model_path.exists():
+            self.logger.error(f"Model file not found: {model_path}")
+            self.logger.error("Possible solutions:")
+            self.logger.error("  1. Check if model training completed successfully")
+            self.logger.error("  2. Verify model file exists in models/ directory")
+
+        if stderr:
+            self.logger.error(f"Error details: {stderr}")
+
+            # Check for common error patterns
+            if "size mismatch" in stderr.lower():
+                self.logger.error("Model architecture mismatch detected")
+                self.logger.error("This typically means feature dimensions don't match")
+            elif "no module named" in stderr.lower():
+                self.logger.error("Missing Python dependencies detected")
+            elif "torch" in stderr.lower() and "load" in stderr.lower():
+                self.logger.error("Model loading error detected")
+
+        # Log stdout for additional context
+        if stdout:
+            self.logger.info(f"Command output: {stdout}")
+
         return False
 
     def step_4_run_backtest(self) -> bool:

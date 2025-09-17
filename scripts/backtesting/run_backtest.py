@@ -82,10 +82,10 @@ def load_predictions(predictions_path: Path) -> pd.DataFrame:
                         df["date"] = pd.to_datetime(dates)
                         df.set_index("date", inplace=True)
                     else:
-                        # Generate dates starting from tomorrow
+                        # Generate dates starting from tomorrow (timezone-naive)
                         from datetime import datetime, timedelta
-                        start_date = datetime.now() + timedelta(days=1)
-                        dates = pd.date_range(start=start_date, periods=len(predictions), freq='D')
+                        start_date = datetime.now().replace(tzinfo=None) + timedelta(days=1)
+                        dates = pd.date_range(start=start_date, periods=len(predictions), freq='D', tz=None)
                         df = pd.DataFrame(predictions, index=dates)
 
                         # Add standard columns for backtesting
@@ -103,8 +103,8 @@ def load_predictions(predictions_path: Path) -> pd.DataFrame:
                     pred_data = data["prediction"]
                     if "predictions" in pred_data:
                         predictions = pred_data["predictions"]
-                        start_date = datetime.now() + timedelta(days=1)
-                        dates = pd.date_range(start=start_date, periods=len(predictions), freq='D')
+                        start_date = datetime.now().replace(tzinfo=None) + timedelta(days=1)
+                        dates = pd.date_range(start=start_date, periods=len(predictions), freq='D', tz=None)
                         df = pd.DataFrame(predictions, index=dates)
 
                         # Standardize column names
@@ -136,10 +136,10 @@ def load_predictions(predictions_path: Path) -> pd.DataFrame:
                     try:
                         df.index = pd.to_datetime(df.index)
                     except Exception:
-                        # Generate dates if conversion fails
+                        # Generate dates if conversion fails (timezone-naive)
                         from datetime import datetime, timedelta
-                        start_date = datetime.now() + timedelta(days=1)
-                        df.index = pd.date_range(start=start_date, periods=len(df), freq='D')
+                        start_date = datetime.now().replace(tzinfo=None) + timedelta(days=1)
+                        df.index = pd.date_range(start=start_date, periods=len(df), freq='D', tz=None)
 
         # Ensure we have required columns for backtesting
         if "predicted_return_1d" not in df.columns:
@@ -153,6 +153,20 @@ def load_predictions(predictions_path: Path) -> pd.DataFrame:
 
         if "confidence" not in df.columns:
             df["confidence"] = 0.7  # Default confidence
+
+        # Ensure index is timezone-naive for compatibility
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+
+        # Ensure datetime index
+        if not isinstance(df.index, pd.DatetimeIndex):
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception:
+                # Final fallback: generate dates
+                from datetime import datetime, timedelta
+                start_date = datetime.now().replace(tzinfo=None) + timedelta(days=1)
+                df.index = pd.date_range(start=start_date, periods=len(df), freq='D', tz=None)
 
         logging.info(f"Loaded predictions: {len(df)} rows, {len(df.columns)} columns")
         if len(df) > 0:
@@ -240,11 +254,17 @@ def load_market_data(data_path: Path, tickers: list = None) -> pd.DataFrame:
         else:
             raise FileNotFoundError(f"Market data path not found: {data_path}")
 
-        # Standardize date column
+        # Standardize date column with timezone-naive handling
         if "Date" in df.columns:
             df["Date"] = pd.to_datetime(df["Date"])
+            # Remove timezone if present
+            if hasattr(df["Date"].dt, 'tz') and df["Date"].dt.tz is not None:
+                df["Date"] = df["Date"].dt.tz_localize(None)
         elif "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"])
+            # Remove timezone if present
+            if hasattr(df["date"].dt, 'tz') and df["date"].dt.tz is not None:
+                df["date"] = df["date"].dt.tz_localize(None)
             df.rename(columns={"date": "Date"}, inplace=True)
 
         # Set MultiIndex if we have ticker column
@@ -252,6 +272,15 @@ def load_market_data(data_path: Path, tickers: list = None) -> pd.DataFrame:
             df.set_index(["Date", "ticker"], inplace=True)
         else:
             df.set_index("Date", inplace=True)
+
+        # Ensure index is timezone-naive for compatibility
+        if isinstance(df.index, pd.MultiIndex):
+            # Check if the Date level has timezone
+            date_level = df.index.get_level_values(0)
+            if hasattr(date_level, 'tz') and date_level.tz is not None:
+                df.index = df.index.set_levels(date_level.tz_localize(None), level=0)
+        elif hasattr(df.index, 'tz') and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
 
         # Ensure required OHLCV columns exist
         required_cols = ["Open", "High", "Low", "Close", "Volume"]

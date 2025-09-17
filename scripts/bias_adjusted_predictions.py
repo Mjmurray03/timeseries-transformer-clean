@@ -108,7 +108,7 @@ class BiasAdjustedPredictor:
         print(f"Bias calibration: offset={self.bias_offset:.4f}, std={self.prediction_std:.4f}")
 
     def prepare_features(self, ticker, lookback_days=100):
-        """Download and prepare features for a ticker"""
+        """Download and prepare features matching training data (exactly 10 features)"""
 
         # Download data
         df = yf.download(ticker, period=f"{lookback_days}d", progress=False)
@@ -121,100 +121,48 @@ class BiasAdjustedPredictor:
             print(f"Insufficient data for {ticker}")
             return None
 
-        # Calculate features (simplified version)
-        close_price = df["Close"].values if "Close" in df.columns else df["Close"]
+        # Calculate features exactly matching train_ultra_simple.py
+        features = []
 
-        df["returns"] = pd.Series(close_price).pct_change().values
-        df["MA_20"] = pd.Series(close_price).rolling(20).mean().values
-        df["MA_50"] = pd.Series(close_price).rolling(50).mean().values
-        df["MA_200"] = pd.Series(close_price).rolling(200).mean().values
+        # Basic OHLCV features (exactly as in training)
+        features.append(df["Open"].values)
+        features.append(df["High"].values)
+        features.append(df["Low"].values)
+        features.append(df["Close"].values)
+        features.append(df["Volume"].values)
 
-        # RSI
-        returns_series = pd.Series(close_price).pct_change()
-        df["RSI"] = (
-            returns_series.rolling(14)
-            .apply(
-                lambda x: (
-                    100 - 100 / (1 + (x[x > 0].mean() / -x[x < 0].mean()))
-                    if len(x[x < 0]) > 0
-                    else 50
-                )
-            )
-            .values
-        )
+        # Technical indicators (exactly as in training)
+        # Returns
+        features.append(df["Close"].pct_change().fillna(0).values)
 
-        # Volatility
-        df["volatility_20d"] = returns_series.rolling(20).std().values
+        # Moving averages
+        features.append(df["Close"].rolling(5).mean().fillna(df["Close"]).values)
+        features.append(df["Close"].rolling(20).mean().fillna(df["Close"]).values)
 
-        # MACD (simplified)
-        close_series = pd.Series(close_price)
-        ema_12 = close_series.ewm(span=12).mean()
-        ema_26 = close_series.ewm(span=26).mean()
-        df["MACD"] = (ema_12 - ema_26).values
-        df["MACD_signal"] = pd.Series(df["MACD"]).ewm(span=9).mean().values
-        df["MACD_diff"] = df["MACD"] - df["MACD_signal"]
+        # Volatility (rolling std of returns)
+        returns = df["Close"].pct_change()
+        features.append(returns.rolling(20).std().fillna(0).values)
 
-        # Bollinger Bands position
-        bb_mean = close_series.rolling(20).mean()
-        bb_std = close_series.rolling(20).std()
-        df["BB_position"] = ((close_series - bb_mean) / (2 * bb_std + 1e-8)).values
+        # Volume moving average
+        features.append(df["Volume"].rolling(5).mean().fillna(df["Volume"]).values)
 
-        # Volume ratio
-        volume = df["Volume"].values if "Volume" in df.columns else df["Volume"]
-        df["volume_ratio"] = pd.Series(volume) / pd.Series(volume).rolling(20).mean()
-        df["volume_ratio"] = df["volume_ratio"].fillna(1.0).values
-
-        # Market regime
-        df["trend_strength"] = (df["MA_50"] - df["MA_200"]) / (df["MA_200"] + 1e-8)
-        df["distance_from_MA200"] = (close_series - df["MA_200"]) / (df["MA_200"] + 1e-8)
-
-        # Fill NaN for trend indicators
-        df["trend_strength"] = df["trend_strength"].fillna(0).values
-        df["distance_from_MA200"] = df["distance_from_MA200"].fillna(0).values
-
-        # Temporal features
-        df["day_of_week"] = pd.to_datetime(df.index).dayofweek
-        df["month"] = pd.to_datetime(df.index).month
-        df["quarter"] = pd.to_datetime(df.index).quarter
-
-        # Fill NaN with forward fill then backward fill
-        df = df.fillna(method="ffill").fillna(method="bfill")
-
-        # Select features
-        feature_cols = [
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Volume",
-            "returns",
-            "returns",
-            "volatility_20d",  # Using returns twice as placeholder
-            "RSI",
-            "MACD",
-            "MACD_signal",
-            "MACD_diff",
-            "BB_position",
-            "volume_ratio",
-            "MA_50",
-            "MA_200",
-            "trend_strength",
-            "distance_from_MA200",
-            "day_of_week",
-            "month",
-            "quarter",
-        ]
+        # Stack features - this creates shape (timesteps, 10)
+        features = np.stack(features, axis=1)
 
         # Get last 60 days of features
-        features = df[feature_cols].iloc[-60:].values
+        features = features[-60:]
 
-        # Standardize
-        features = (features - np.nanmean(features, axis=0)) / (np.nanstd(features, axis=0) + 1e-8)
+        # Normalize using simple standardization (matching training approach)
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0) + 1e-8  # Avoid division by zero
+        features = (features - mean) / std
 
         # Replace any remaining NaN with 0
-        features = np.nan_to_num(features, 0)
+        features = np.nan_to_num(features, nan=0.0, posinf=1.0, neginf=-1.0)
 
-        return features, float(close_price[-1])
+        print(f"Prepared features shape: {features.shape} (should be (60, 10))")
+
+        return features.astype(np.float32), float(df["Close"].iloc[-1])
 
     def predict_adjusted(self, ticker):
         """Make bias-adjusted predictions"""

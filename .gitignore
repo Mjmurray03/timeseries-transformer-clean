@@ -264,6 +264,7 @@ runs/
 .env.local
 .env.production
 .env.*
+!.env.example
 credentials.json
 secrets.yaml
 *.key

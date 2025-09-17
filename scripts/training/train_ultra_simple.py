@@ -1,10 +1,37 @@
 #!/usr/bin/env python3
 """
-# COMPONENT: Ultra-Simple Single-Ticker Training Script (FIXED)
-# PURPOSE: Train transformer model on individual stock with proper ticker discovery
-# FIXES: Handles flat parquet files (AAPL.parquet) instead of subdirectories
-# INPUTS: --ticker argument specifying stock symbol, data from data/raw/{ticker}.parquet
-# OUTPUTS: Trained model saved as models/model_{ticker}_best.pt, scaler as scalers/scaler_{ticker}.json
+Ultra-Simple Single-Ticker Training Script
+
+Train a transformer model on individual stock data with automatic GPU detection and flexible configuration.
+
+Features:
+- Automatic GPU detection with CPU fallback
+- Optional configuration file support
+- Flexible ticker selection
+- Comprehensive logging and metrics
+
+Usage Examples:
+    # Train on AAPL with default settings
+    python train_ultra_simple.py --ticker AAPL
+
+    # Train with custom parameters
+    python train_ultra_simple.py --ticker MSFT --epochs 50 --batch-size 64
+
+    # Train with configuration file
+    python train_ultra_simple.py --ticker NVDA --config config.yaml
+
+    # Enable Weights & Biases logging
+    python train_ultra_simple.py --ticker TSLA --use-wandb
+
+Inputs:
+    --ticker: Stock symbol (required)
+    --config: Optional YAML configuration file
+    Other parameters: epochs, batch-size, learning-rate, etc.
+
+Outputs:
+    - Trained model: models/model_{ticker}_best.pt
+    - Scaler parameters: scalers/scaler_{ticker}.json
+    - Training logs: logs/training_{ticker}_{timestamp}.log
 """
 
 import argparse
@@ -22,6 +49,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import yaml
 import wandb
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
@@ -204,7 +232,7 @@ class TickerDataProcessor:
 class SimpleTrainer:
     """Simple trainer class for single ticker"""
 
-    def __init__(self, model: nn.Module, ticker: str, device: str = "cuda"):
+    def __init__(self, model: nn.Module, ticker: str, device: torch.device):
         self.model = model.to(device)
         self.ticker = ticker
         self.device = device
@@ -336,33 +364,144 @@ def setup_logging(ticker: str):
     return log_file
 
 
+def load_config_from_args_and_file(args, parser) -> Dict:
+    """Load configuration from config file or command line arguments."""
+    if args.config and os.path.exists(args.config):
+        # Load from config file
+        with open(args.config, 'r') as f:
+            config = yaml.load(f, Loader=yaml.SafeLoader)
+        logging.info(f"Loaded configuration from {args.config}")
+    else:
+        # Use command line arguments - only include attributes that exist
+        config = {}
+        arg_mappings = {
+            'ticker': 'ticker',
+            'epochs': 'epochs',
+            'batch_size': 'batch_size',
+            'learning_rate': 'learning_rate',
+            'val_split': 'val_split',
+            'seq_len': 'seq_len',
+            'horizon': 'horizon',
+            'hidden_dim': 'hidden_dim',
+            'num_layers': 'num_layers',
+            'num_heads': 'num_heads',
+            'dropout': 'dropout',
+            'use_wandb': 'use_wandb',
+            'wandb_project': 'wandb_project',
+            'device': 'device',
+            'data_dir': 'data_dir',
+            'scalers_dir': 'scalers_dir',
+            'allow_data_without_scalers': 'allow_data_without_scalers'
+        }
+
+        for config_key, attr_name in arg_mappings.items():
+            if hasattr(args, attr_name):
+                config[config_key] = getattr(args, attr_name)
+        if args.config:
+            logging.warning(f"Config file {args.config} not found, using command line arguments")
+        else:
+            logging.info("Using command line arguments (no config file specified)")
+
+    # Override config file values with explicitly provided CLI arguments
+    # This ensures CLI args always take precedence
+    cli_overrides = {}
+    for key, value in vars(args).items():
+        # Skip special keys that aren't configuration parameters
+        if key in ['config']:
+            continue
+        # If the argument was explicitly provided (not default), it overrides config
+        if parser.get_default(key) != value:
+            cli_overrides[key] = value
+
+    # Apply CLI overrides to config
+    config.update(cli_overrides)
+
+    # Convert back to argparse namespace for compatibility
+    for key, value in config.items():
+        if hasattr(args, key):
+            setattr(args, key, value)
+
+    return config
+
+
 def main():
     """
-    # COMPONENT: Main Training Pipeline
-    # PURPOSE: Orchestrate complete training workflow with error handling
-    # INPUTS: CLI arguments including ticker symbol
-    # OUTPUTS: Trained model, scaler, and comprehensive logs
-    # VERIFICATION: Validates all inputs, handles errors gracefully, logs to W&B
+    Main Training Pipeline
+
+    Orchestrates the complete training workflow with:
+    - Automatic GPU detection with CPU fallback
+    - Flexible configuration (CLI args or config file)
+    - Comprehensive error handling and logging
+    - Optional Weights & Biases integration
     """
 
     # Parse arguments
-    parser = argparse.ArgumentParser(description="Ultra-Simple Single-Ticker Training")
-    parser.add_argument(
-        "--ticker", type=str, required=True, help="Stock ticker symbol (e.g., AAPL, MSFT)"
+    parser = argparse.ArgumentParser(
+        description="Train TimeSeries Transformer on Stock Data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    %(prog)s --ticker AAPL                    # Train on AAPL with defaults
+    %(prog)s --ticker MSFT --epochs 50        # Train MSFT for 50 epochs
+    %(prog)s --ticker NVDA --config cfg.yaml  # Use configuration file
+    %(prog)s --ticker TSLA --use-wandb        # Enable W&B logging
+        """
     )
-    parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
-    parser.add_argument("--learning-rate", type=float, default=1e-3, help="Learning rate")
-    parser.add_argument("--seq-len", type=int, default=60, help="Sequence length")
-    parser.add_argument("--horizon", type=int, default=3, help="Prediction horizon")
+
+    # Required argument
     parser.add_argument(
-        "--hidden-dim", type=int, default=128, help="Hidden dimension of transformer"
+        "--ticker",
+        type=str,
+        required=True,
+        help="Stock ticker symbol (e.g., AAPL, MSFT, GOOGL, NVDA, TSLA). "
+             "The script will look for data in data/raw/{TICKER}.parquet"
     )
-    parser.add_argument("--num-layers", type=int, default=4, help="Number of transformer layers")
-    parser.add_argument("--num-heads", type=int, default=8, help="Number of attention heads")
-    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
-    parser.add_argument("--use-wandb", action="store_true", help="Enable Weights & Biases logging")
-    parser.add_argument("--val-split", type=float, default=0.2, help="Validation split ratio")
+
+    # Optional configuration file
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to YAML configuration file (optional). "
+             "If provided, config file parameters override defaults but CLI args override config."
+    )
+    # Training parameters
+    parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs (default: 20)")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training (default: 32)")
+    parser.add_argument("--learning-rate", type=float, default=1e-3, help="Learning rate (default: 0.001)")
+    parser.add_argument("--val-split", type=float, default=0.2, help="Validation split ratio (default: 0.2)")
+
+    # Data parameters
+    parser.add_argument("--seq-len", type=int, default=60, help="Input sequence length in days (default: 60)")
+    parser.add_argument("--horizon", type=int, default=3, help="Prediction horizon in days (default: 3)")
+
+    # Model architecture
+    parser.add_argument(
+        "--hidden-dim", type=int, default=128,
+        help="Hidden dimension of transformer (default: 128)"
+    )
+    parser.add_argument(
+        "--num-layers", type=int, default=4,
+        help="Number of transformer layers (default: 4)"
+    )
+    parser.add_argument(
+        "--num-heads", type=int, default=8,
+        help="Number of attention heads (default: 8)"
+    )
+    parser.add_argument(
+        "--dropout", type=float, default=0.1,
+        help="Dropout rate for regularization (default: 0.1)"
+    )
+
+    # Logging and monitoring
+    parser.add_argument(
+        "--use-wandb", action="store_true",
+        help="Enable Weights & Biases logging for experiment tracking"
+    )
+    parser.add_argument(
+        "--wandb-project", type=str, default="timeseries-transformer",
+        help="W&B project name (default: timeseries-transformer)"
+    )
 
     # NEW: Add directory overrides
     parser.add_argument(
@@ -384,7 +523,21 @@ def main():
         help="Allow training without pre-existing scalers",
     )
 
+    # Device selection
+    parser.add_argument(
+        "--device", type=str, default="auto",
+        choices=["auto", "cuda", "cpu"],
+        help="Device to use for training. 'auto' will use GPU if available (default: auto)"
+    )
+
     args = parser.parse_args()
+
+    # Load configuration from file or command line arguments
+    try:
+        config = load_config_from_args_and_file(args, parser)
+    except Exception as e:
+        logging.error(f"Failed to load configuration: {e}")
+        sys.exit(1)
 
     # Resolve directories with env fallbacks
     if args.data_dir:
@@ -435,12 +588,17 @@ def main():
 
     # Initialize W&B if requested
     if args.use_wandb:
-        wandb.init(
-            project="timeseries-transformer",
-            name=f"{ticker}_ultra_simple_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            config=vars(args),
-            tags=[ticker, "ultra_simple", "single_ticker"],
-        )
+        try:
+            wandb.init(
+                project=args.wandb_project,
+                name=f"{ticker}_ultra_simple_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                config=vars(args),
+                tags=[ticker, "ultra_simple", "single_ticker", device.type],
+            )
+            logging.info(f"Initialized W&B project: {args.wandb_project}")
+        except Exception as e:
+            logging.warning(f"Failed to initialize W&B: {e}. Continuing without W&B logging.")
+            args.use_wandb = False
 
     try:
         # Validate ticker
@@ -510,9 +668,37 @@ def main():
             val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
         )
 
-        # Initialize model
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Device configuration with detailed GPU info
+        if args.device == "auto":
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            device = torch.device(args.device)
+
+        # Print device information
+        print("\n" + "="*60)
+        print("DEVICE CONFIGURATION")
+        print("="*60)
+        print(f"Using device: {device}")
+
+        if device.type == "cuda":
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+            print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+            print(f"CUDA Version: {torch.version.cuda}")
+            print(f"cuDNN Version: {torch.backends.cudnn.version()}")
+
+            # Set deterministic behavior for reproducibility
+            torch.cuda.manual_seed(42)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        else:
+            print("Running on CPU - Training may be slower")
+            print("To use GPU, ensure CUDA is installed and compatible with PyTorch")
+
+        print("="*60 + "\n")
+
         logging.info(f"Using device: {device}")
+        if device.type == "cuda":
+            logging.info(f"GPU: {torch.cuda.get_device_name(0)}")
 
         model = TimeSeriesTransformer(
             input_dim=features.shape[1],
@@ -523,8 +709,8 @@ def main():
             dropout=args.dropout,
         )
 
-        # Initialize trainer
-        trainer = SimpleTrainer(model, ticker, device=str(device))
+        # Initialize trainer with device object (not string)
+        trainer = SimpleTrainer(model, ticker, device=device)
         trainer.optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
         # Training loop

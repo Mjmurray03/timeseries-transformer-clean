@@ -386,6 +386,63 @@ def prepare_predictions_for_backtest(predictions_df: pd.DataFrame) -> pd.DataFra
         return predictions_df
 
 
+def get_default_dates() -> tuple[str, str]:
+    """Calculate default start and end dates (30 days ago to today)."""
+    from datetime import date, timedelta
+
+    end_date = date.today()
+    start_date = end_date - timedelta(days=30)
+
+    return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+
+
+def find_default_files() -> tuple[str, str]:
+    """Find default prediction and market data files."""
+    import glob
+
+    # Find predictions file
+    predictions_path = "models/predictions.csv"
+
+    # Look for recent prediction files
+    prediction_patterns = [
+        "predictions/prediction_*.json",
+        "predictions/predictions_*.json",
+        "models/predictions.csv",
+        "models/predictions.parquet"
+    ]
+
+    for pattern in prediction_patterns:
+        files = glob.glob(pattern)
+        if files:
+            # Get most recent file
+            predictions_path = max(files, key=lambda x: Path(x).stat().st_mtime)
+            break
+
+    # Find market data file
+    market_data_path = "data/raw/AAPL.csv"
+
+    # Look for available market data
+    market_patterns = [
+        "data/raw/*.csv",
+        "data/processed/*.csv",
+        "data/raw/*.parquet",
+        "data/processed/*.parquet"
+    ]
+
+    for pattern in market_patterns:
+        files = glob.glob(pattern)
+        if files:
+            # Prefer AAPL if available, otherwise use first file
+            aapl_files = [f for f in files if "AAPL" in f.upper()]
+            if aapl_files:
+                market_data_path = aapl_files[0]
+            else:
+                market_data_path = files[0]
+            break
+
+    return predictions_path, market_data_path
+
+
 def create_backtest_config(args) -> BacktestConfig:
     """Create backtest configuration from command line arguments"""
 
@@ -616,85 +673,228 @@ def main():
     # COMPONENT: Main Backtesting Execution
     # PURPOSE: Orchestrate complete backtesting pipeline
     # VERIFICATION: All requirements met, realistic costs applied, no look-ahead bias
+
+    Example usage:
+    # Basic backtest with defaults (auto-detects data and uses recent dates)
+    python scripts/backtesting/run_backtest.py
+
+    # Backtest with specific ticker and data
+    python scripts/backtesting/run_backtest.py \
+        --predictions-path models/predictions.csv \
+        --market-data-path data/raw/AAPL.csv \
+        --start-date 2024-01-01 \
+        --end-date 2024-12-31
+
+    # Advanced backtest with custom parameters
+    python scripts/backtesting/run_backtest.py \
+        --predictions-path models/ensemble_predictions.parquet \
+        --market-data-path data/raw/ \
+        --start-date 2024-01-01 \
+        --end-date 2024-12-31 \
+        --initial-capital 250000 \
+        --return-threshold 0.03 \
+        --confidence-threshold 0.8 \
+        --max-positions 8 \
+        --walk-forward \
+        --verbose
     """
 
-    parser = argparse.ArgumentParser(description="ML Model Backtesting Pipeline")
+    parser = argparse.ArgumentParser(
+        description="ML Model Backtesting Pipeline - Production-ready backtesting system for ML trading strategies",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Example usage:
+  # Basic backtest with auto-detected data and recent dates
+  python scripts/backtesting/run_backtest.py
 
-    # Required arguments
+  # Backtest with specific files and dates
+  python scripts/backtesting/run_backtest.py \
+      --predictions-path models/predictions.csv \
+      --market-data-path data/raw/AAPL.csv \
+      --start-date 2024-01-01 \
+      --end-date 2024-12-31
+
+  # Advanced backtest with walk-forward analysis
+  python scripts/backtesting/run_backtest.py \
+      --predictions-path models/ensemble_predictions.parquet \
+      --market-data-path data/raw/ \
+      --start-date 2024-01-01 \
+      --end-date 2024-12-31 \
+      --initial-capital 250000 \
+      --return-threshold 0.03 \
+      --confidence-threshold 0.8 \
+      --max-positions 8 \
+      --walk-forward \
+      --verbose
+
+For more information, visit: https://github.com/your-repo/timeseries-transformer
+"""
+    )
+
+    # Get default values
+    default_start_date, default_end_date = get_default_dates()
+    default_predictions_path, default_market_data_path = find_default_files()
+
+    # Data input arguments (now optional with smart defaults)
     parser.add_argument(
-        "--predictions-path", type=str, required=True, help="Path to ML predictions file"
+        "--predictions-path",
+        type=str,
+        default=default_predictions_path,
+        help=f"Path to ML predictions file (CSV, Parquet, or JSON). Must contain columns: date, predicted_return_1d, confidence. Default: auto-detected (currently: {default_predictions_path})"
     )
     parser.add_argument(
-        "--market-data-path", type=str, required=True, help="Path to market data directory or file"
+        "--market-data-path",
+        type=str,
+        default=default_market_data_path,
+        help=f"Path to market data directory or file containing OHLCV data. Supports single files or directory with ticker subdirectories. Default: auto-detected (currently: {default_market_data_path})"
     )
     parser.add_argument(
-        "--start-date", type=str, required=True, help="Backtest start date (YYYY-MM-DD)"
+        "--start-date",
+        type=str,
+        default=default_start_date,
+        help=f"Backtest start date in YYYY-MM-DD format. Should align with available prediction and market data. Default: {default_start_date} (30 days ago)"
     )
     parser.add_argument(
-        "--end-date", type=str, required=True, help="Backtest end date (YYYY-MM-DD)"
+        "--end-date",
+        type=str,
+        default=default_end_date,
+        help=f"Backtest end date in YYYY-MM-DD format. Must be after start-date and within available data range. Default: {default_end_date} (today)"
     )
 
     # Capital and strategy parameters
     parser.add_argument(
-        "--initial-capital", type=float, default=100000, help="Initial capital ($100,000)"
+        "--initial-capital",
+        type=float,
+        default=100000,
+        help="Initial portfolio capital in USD. Default: $100,000. Recommended range: $50,000 - $1,000,000 for realistic backtesting"
     )
     parser.add_argument(
-        "--strategy", type=str, default="ml_threshold", help="Strategy to use (ml_threshold)"
+        "--strategy",
+        type=str,
+        default="ml_threshold",
+        help="Trading strategy to use. Default: 'ml_threshold' (ML-based threshold strategy with risk management)"
     )
     parser.add_argument(
         "--return-threshold",
         type=float,
         default=0.02,
-        help="Minimum expected return threshold (2%)",
+        help="Minimum expected return threshold for position entry. Default: 0.02 (2%%). Higher values = more selective trades",
     )
     parser.add_argument(
-        "--confidence-threshold", type=float, default=0.7, help="Minimum confidence threshold (70%)"
+        "--confidence-threshold",
+        type=float,
+        default=0.7,
+        help="Minimum model confidence required for position entry. Default: 0.7 (70%%). Range: 0.5-0.95"
     )
-    parser.add_argument("--max-positions", type=int, default=5, help="Maximum concurrent positions")
+    parser.add_argument(
+        "--max-positions",
+        type=int,
+        default=5,
+        help="Maximum number of concurrent positions. Default: 5. Recommended range: 3-10 for diversification"
+    )
     parser.add_argument(
         "--position-sizing",
         type=str,
         default="kelly",
         choices=["kelly", "equal_weight", "risk_parity"],
-        help="Position sizing method",
+        help="Position sizing method. Default: 'kelly' (Kelly Criterion for optimal sizing). Options: kelly, equal_weight, risk_parity",
     )
 
     # Risk management parameters
     parser.add_argument(
-        "--max-drawdown", type=float, default=0.15, help="Maximum drawdown limit (15%)"
+        "--max-drawdown",
+        type=float,
+        default=0.15,
+        help="Maximum portfolio drawdown limit. Default: 0.15 (15%%). Risk management will halt trading if exceeded"
     )
     parser.add_argument(
-        "--max-position-size", type=float, default=0.2, help="Maximum position size (20%)"
+        "--max-position-size",
+        type=float,
+        default=0.2,
+        help="Maximum size of any single position as fraction of portfolio. Default: 0.2 (20%%). Recommended: 0.1-0.25"
     )
     parser.add_argument(
         "--correlation-threshold",
         type=float,
         default=0.7,
-        help="Maximum correlation between positions",
+        help="Maximum correlation allowed between positions for diversification. Default: 0.7 (70%%). Lower values increase diversification",
     )
     parser.add_argument(
-        "--volatility-target", type=float, default=0.15, help="Target portfolio volatility (15%)"
+        "--volatility-target",
+        type=float,
+        default=0.15,
+        help="Target annualized portfolio volatility for risk scaling. Default: 0.15 (15%%). Typical range: 0.10-0.25"
     )
-    parser.add_argument("--var-limit", type=float, default=0.05, help="VaR limit (5%)")
     parser.add_argument(
-        "--leverage-limit", type=float, default=1.0, help="Maximum leverage (1.0 = no leverage)"
+        "--var-limit",
+        type=float,
+        default=0.05,
+        help="Value-at-Risk (VaR) limit for daily portfolio losses. Default: 0.05 (5%%). Used for risk monitoring"
+    )
+    parser.add_argument(
+        "--leverage-limit",
+        type=float,
+        default=1.0,
+        help="Maximum portfolio leverage allowed. Default: 1.0 (no leverage). Values >1.0 enable margin trading"
     )
 
     # Analysis options
-    parser.add_argument("--walk-forward", action="store_true", help="Run walk-forward analysis")
-    parser.add_argument("--tickers", type=str, nargs="*", help="Specific tickers to backtest")
+    parser.add_argument(
+        "--walk-forward",
+        action="store_true",
+        help="Enable walk-forward analysis for robust out-of-sample validation. Splits data into training/testing periods with rolling windows"
+    )
+    parser.add_argument(
+        "--tickers",
+        type=str,
+        nargs="*",
+        help="Specific ticker symbols to include in backtest. If not specified, uses all available tickers in market data. Example: AAPL MSFT GOOGL"
+    )
 
     # Output and logging
     parser.add_argument(
-        "--output-dir", type=str, default="results/backtest", help="Output directory for results"
+        "--output-dir",
+        type=str,
+        default="results/backtest",
+        help="Output directory for backtest results, reports, and logs. Default: 'results/backtest'. Directory will be created if it doesn't exist"
     )
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable detailed debug logging for troubleshooting. Shows trade-level details, risk calculations, and performance metrics"
+    )
 
     args = parser.parse_args()
 
-    # Setup paths
+    # Validate file paths and provide helpful error messages
     predictions_path = Path(args.predictions_path)
     market_data_path = Path(args.market_data_path)
+
+    if not predictions_path.exists():
+        print(f"\n❌ Error: Predictions file not found: {predictions_path}")
+        print("\n💡 Suggestions:")
+        print("   1. Run a model training first:")
+        print("      python scripts/training/train_ultra_simple.py --ticker AAPL")
+        print("   2. Generate predictions:")
+        print("      python scripts/bias_adjusted_predictions.py --ticker AAPL")
+        print("   3. Or run the complete demo:")
+        print("      python scripts/run_demo.py")
+        print("   4. Or specify a valid predictions file:")
+        print("      --predictions-path path/to/your/predictions.csv")
+        sys.exit(1)
+
+    if not market_data_path.exists():
+        print(f"\n❌ Error: Market data file not found: {market_data_path}")
+        print("\n💡 Suggestions:")
+        print("   1. Download market data first:")
+        print("      python scripts/data/download_data.py --ticker AAPL")
+        print("   2. Or run the complete demo:")
+        print("      python scripts/run_demo.py")
+        print("   3. Or specify a valid market data file:")
+        print("      --market-data-path path/to/your/market_data.csv")
+        sys.exit(1)
+
+    # Setup paths
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 

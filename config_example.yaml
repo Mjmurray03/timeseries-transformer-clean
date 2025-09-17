@@ -1,0 +1,30 @@
+# Sample configuration file for train_ultra_simple.py
+# Copy this file and modify values as needed
+# CLI arguments will override these values
+
+# Training Parameters
+epochs: 50
+batch_size: 64
+learning_rate: 0.0005
+val_split: 0.15
+
+# Data Parameters
+seq_len: 90
+horizon: 5
+
+# Model Architecture
+hidden_dim: 256
+num_layers: 6
+num_heads: 16
+dropout: 0.15
+
+# Monitoring
+use_wandb: true
+wandb_project: "my-timeseries-experiment"
+
+# Device (auto, cuda, cpu)
+device: "auto"
+
+# Directories (optional - will use defaults if not specified)
+# data_dir: "data/raw"
+# scalers_dir: "scalers"

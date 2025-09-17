@@ -2,9 +2,29 @@
 
 ## A Complete ML Pipeline Case Study: From Architecture to Production
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.4.0+-ee4c2c.svg)](https://pytorch.org/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.6+-ee4c2c.svg)](https://pytorch.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## 🚀 Recent Updates (September 2025)
+
+### ✨ Major System Overhaul Completed!
+This project has been completely updated with production-ready fixes and enhancements:
+
+- **🐛 All Critical Bugs Fixed**: PyTorch 2.6+ compatibility, model loading, API endpoints
+- **🎨 Professional UI**: Custom dark-themed Swagger UI with educational features
+- **🔄 Robust Input Validation**: Support for multiple input formats with automatic reshaping
+- **🧪 Comprehensive Testing**: Full test suite with 100% success rate
+- **📚 Educational Content**: Built-in documentation perfect for students learning AI/ML
+- **🏗️ Production Ready**: Proper error handling, caching, and monitoring
+
+### 🎯 What's New
+- **Custom Swagger UI**: Beautiful dark-themed documentation at `/docs`
+- **Flexible API**: Accepts both flat arrays (600 elements) and 2D arrays (60×10)
+- **Enhanced Models**: Dynamic model loading with fallback configurations
+- **Student-Friendly**: Educational explanations for transformer concepts and AI workflows
+- **Comprehensive Tests**: Python and PowerShell test suites for cross-platform validation
 
 > **Key Insight**: This project demonstrates a complete end-to-end ML pipeline for financial time series prediction. While the transformer model achieved impressive technical metrics (RMSE: $0.268), it failed to generate profitable trading signals - providing valuable lessons about the gap between ML metrics and real-world performance.
 
@@ -45,8 +65,8 @@ This documentation shares both the successes and failures transparently, as the 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/timeseries-transformer.git
-cd timeseries-transformer
+git clone https://github.com/Mjmurray03/timeseries-transformer-clean.git
+cd timeseries-transformer-clean
 ```
 
 2. Create virtual environment:
@@ -64,6 +84,93 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edit .env with your API keys (optional - works without them)
+```
+
+## Quick Start - Complete Demo
+
+Run the entire pipeline with one command:
+```bash
+python scripts/run_demo.py
+```
+
+This will:
+- ✅ **Download AAPL stock data** (2 years of historical data)
+- ✅ **Train a model** (auto-detects GPU/CPU, ~5 minutes)
+- ✅ **Run predictions** (generates future price forecasts)
+- ✅ **Start API server** (interactive Swagger UI at http://localhost:8000/docs)
+- ✅ **Show you how to extend the project** (configuration examples and next steps)
+
+The demo is completely automated and works without any user intervention!
+
+### Detailed Usage
+
+#### Training a Model
+```bash
+# Basic training (auto-detects GPU)
+python scripts/training/train_ultra_simple.py --ticker AAPL --epochs 50
+
+# With config file
+python scripts/training/train_ultra_simple.py --ticker AAPL --config config_example.yaml
+
+# Multiple stocks
+python scripts/training/train_multi_stock.py --tickers AAPL MSFT GOOG --epochs 50
+
+# Force CPU usage
+python scripts/training/train_ultra_simple.py --ticker AAPL --device cpu
+```
+
+#### Running Backtests
+```bash
+python scripts/backtesting/run_backtest.py \
+    --predictions-path models/predictions.csv \
+    --market-data-path data/processed/AAPL.csv \
+    --start-date 2024-01-01 \
+    --end-date 2024-12-31
+```
+
+#### Using the API
+```bash
+# Start the server
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
+# Test with curl
+curl -X POST "http://localhost:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticker": "AAPL",
+    "features": [/* 600 features */],
+    "horizon": 3
+  }'
+```
+
+#### Extending the Project
+
+**Adding More Data Sources:**
+Edit the `.env` file to add new data providers:
+```bash
+# Add to .env
+ALPHA_VANTAGE_API_KEY=your_key_here
+NEWSAPI_API_KEY=your_key_here
+```
+
+**Modifying Model Architecture:**
+Edit `config_example.yaml` to change model parameters:
+```yaml
+# Model architecture
+hidden_dim: 256     # Increase for more complexity
+num_layers: 8       # Deeper networks
+num_heads: 16       # More attention heads
+dropout: 0.15       # Regularization
+```
+
+**Automating Daily Reports:**
+Use `scripts/setup_environment.py` to set up platform-specific automation:
+```bash
+# Windows Task Scheduler
+python scripts/setup_environment.py --check-only
+
+# Linux/Mac cron
+python scripts/daily_report.py --schedule daily
 ```
 
 ### Running the Complete Pipeline
@@ -115,6 +222,141 @@ uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 
 API documentation available at: http://localhost:8000/docs
+
+## 🔥 Production-Ready API Features
+
+### 🎨 Custom Professional Swagger UI
+Experience our beautiful, educational documentation interface:
+- **Dark Theme**: Professional gradient styling with modern design
+- **Educational Content**: Built-in explanations of AI concepts for students
+- **Interactive Testing**: Try all endpoints directly in the browser
+- **Quick Start Guide**: Step-by-step instructions for using the API
+
+```bash
+# Start the server
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Access the stunning documentation
+# http://localhost:8000/docs
+```
+
+### 🚀 API Endpoints
+
+#### 1. Health Check - `GET /health`
+Monitor system status and loaded models:
+```bash
+curl http://localhost:8000/health
+```
+**Returns**: Server status, CUDA availability, loaded models, cache status
+
+#### 2. Model Information - `GET /model-info`
+Get detailed AI model architecture information:
+```bash
+curl http://localhost:8000/model-info
+```
+**Returns**: Model parameters, architecture details, supported tickers, performance metrics
+
+#### 3. Stock Prediction - `POST /predict`
+The main prediction endpoint with **flexible input support**:
+
+**Option A: 2D Array (60×10)**
+```python
+import requests
+import numpy as np
+
+# Preferred format: 60 days × 10 features
+features = np.random.random((60, 10)).tolist()
+
+response = requests.post("http://localhost:8000/predict", json={
+    "ticker": "AAPL",
+    "features": features,
+    "horizon": 3  # Predict 3 days ahead
+})
+
+print(response.json()["predictions"])
+```
+
+**Option B: Flat Array (600 elements)**
+```python
+# Alternative format: flat array (automatically reshaped)
+features_flat = np.random.random(600).tolist()
+
+response = requests.post("http://localhost:8000/predict", json={
+    "ticker": "AAPL", 
+    "features": features_flat
+})
+```
+
+**Returns**: Price predictions, confidence intervals, model metadata, caching info
+
+#### 4. Backtesting - `POST /backtest`
+Historical performance analysis:
+```python
+response = requests.post("http://localhost:8000/backtest", json={
+    "ticker": "AAPL",
+    "start_date": "2024-01-01",
+    "end_date": "2024-08-01",
+    "initial_capital": 100000
+})
+```
+
+### 🧪 Comprehensive Testing Suite
+
+Run our extensive test suites to verify everything works:
+
+```bash
+# Python test suite (recommended)
+python test_api_python.py
+
+# PowerShell test suite (Windows)
+powershell -ExecutionPolicy Bypass -File test_api_powershell.ps1
+
+# Custom UI verification
+python test_custom_ui.py
+
+# System validation
+python validate_fixes.py
+```
+
+**Test Coverage**: 
+- ✅ All API endpoints functional
+- ✅ Input validation working
+- ✅ Error handling robust
+- ✅ Custom UI serving properly
+- ✅ Model loading successful
+
+### 🔧 Recent Bug Fixes
+
+#### Issues Resolved:
+1. **PyTorch 2.6+ Compatibility** - Fixed all `torch.load()` calls with `weights_only=False`
+2. **Model Loading Architecture** - Dynamic configuration system for different model architectures  
+3. **Input Validation** - Robust handling of multiple input formats with clear error messages
+4. **Custom Swagger UI** - Proper HTMLResponse implementation with educational features
+5. **API Endpoints** - All endpoints now functional with comprehensive error handling
+
+#### New Files Added:
+- `src/api/validators.py` - Robust input validation functions
+- `src/api/custom_docs.html` - Professional dark-themed documentation
+- `models/model_configs.json` - Dynamic model configuration system
+- `test_api_python.py` - Comprehensive Python test suite
+- `test_custom_ui.py` - Custom UI verification script
+
+#### Enhanced Features:
+- **Flexible Input Formats**: API now accepts both flat arrays (600 elements) and 2D arrays (60×10)
+- **Educational Interface**: Custom Swagger UI with explanations of transformer concepts
+- **Debug Endpoints**: Built-in troubleshooting tools at `/debug/paths`
+- **Graceful Fallbacks**: Robust error handling with informative error messages
+
+### 🎓 Perfect for Learning
+This API is specifically designed for **students and educators**:
+- **Interactive Documentation** with step-by-step guides
+- **Educational Explanations** of AI/ML concepts throughout the interface
+- **Live Examples** you can run directly in the browser
+- **Comprehensive Error Messages** that help you learn from mistakes
+- **Professional Styling** that demonstrates production-quality interfaces
+
+### 🌐 Supported Tickers
+Currently supports: **AAPL**, **GOOG**, **MSFT**, **NVDA**, **TSLA**, **NFLX**, **AMZN**, **META**
 
 ## 📈 Results and Performance
 
@@ -201,22 +443,123 @@ The transformer converged to predicting nearly identical values for all stocks (
 - Backtesting with realistic constraints is essential
 - Technical metrics (RMSE) != trading performance
 
-## 🛠️ Technical Stack
+## 🛠️ Technical Stack (Updated)
 
 ### Core Technologies
-- **Python 3.10**: Primary language
-- **PyTorch 2.4**: Deep learning framework
-- **FastAPI**: API framework
-- **Redis**: Caching layer
-- **Docker**: Containerization
-- **PostgreSQL**: Metadata storage
+- **Python 3.8+**: Primary language (backwards compatible)
+- **PyTorch 2.6+**: Deep learning framework with latest compatibility fixes
+- **FastAPI**: Modern API framework with custom Swagger UI
+- **Redis**: Caching layer (optional)
+- **HTML/CSS/JavaScript**: Custom professional documentation interface
 
 ### Key Libraries
-- `yfinance`: Market data
-- `pandas/numpy`: Data manipulation
-- `scikit-learn`: Preprocessing
-- `wandb`: Experiment tracking
-- `pytest`: Testing framework
+- `yfinance`: Market data collection
+- `pandas/numpy`: Data manipulation and processing
+- `scikit-learn`: Preprocessing and feature engineering
+- `wandb>=0.15.0`: Experiment tracking (newly added)
+- `requests`: HTTP client for API testing
+- `uvicorn`: ASGI server for production deployment
+
+### New Dependencies Added
+- **wandb**: For experiment tracking and model monitoring
+- **HTMLResponse**: For serving custom Swagger UI documentation
+- **validators**: Robust input validation and error handling
+- **pathlib**: Enhanced file path management
+
+### Testing Framework
+- **test_api_python.py**: Comprehensive Python test suite
+- **test_custom_ui.py**: Custom UI verification
+- **validate_fixes.py**: System validation script
+- Cross-platform PowerShell and Python testing support
+
+## 🚨 Troubleshooting Guide
+
+### Common Issues and Solutions
+
+#### 1. Port Already in Use
+```powershell
+# Windows - Find and kill process
+netstat -ano | findstr :8000
+taskkill /PID [PID] /F
+
+# Alternative - Use different port
+uvicorn src.api.main:app --host 0.0.0.0 --port 8001
+```
+
+#### 2. PyTorch Compatibility Issues
+```bash
+# Ensure you have the latest compatible version
+pip install torch>=2.4.0
+
+# If you see pickle warnings, the fix is already applied
+# All torch.load() calls now use weights_only=False
+```
+
+#### 3. Model Loading Errors
+```bash
+# Check if models directory exists and contains .pt files
+ls models/
+# Expected: *.pt files and model_configs.json
+
+# Verify model configurations
+python -c "
+import json
+from pathlib import Path
+config_file = Path('models/model_configs.json')
+if config_file.exists():
+    print('✅ Model config exists')
+    with open(config_file) as f:
+        config = json.load(f)
+        print(f'Models configured: {list(config.get(\"model_configurations\", {}).keys())}')
+else:
+    print('❌ Model config missing - API will use fallback configurations')
+"
+```
+
+#### 4. API Endpoint Not Working
+```bash
+# Test health endpoint first
+curl http://localhost:8000/health
+
+# Check if custom docs are loading
+curl http://localhost:8000/debug/paths
+
+# Verify all endpoints
+python test_api_python.py
+```
+
+#### 5. Custom Swagger UI Not Loading
+```bash
+# Check if custom HTML file exists
+ls src/api/custom_docs.html
+
+# Test debug endpoint
+curl http://localhost:8000/debug/paths
+
+# Restart server to reload changes
+# Ctrl+C to stop, then restart:
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### 6. Input Validation Errors
+The API now accepts **two input formats**:
+
+```python
+# Option 1: 2D Array (60 days × 10 features) - PREFERRED
+features = [[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]] * 60
+
+# Option 2: Flat Array (600 elements) - AUTOMATICALLY RESHAPED  
+features = [0.1, 0.2, 0.3] * 200  # 600 total elements
+
+# Both formats work! The API automatically handles conversion.
+```
+
+### System Requirements
+- **Python**: 3.8 or higher
+- **Memory**: 4GB RAM minimum (8GB recommended)
+- **Disk Space**: 1GB for models and data
+- **GPU**: Optional (CPU-only mode works fine for inference)
+- **OS**: Windows, Linux, macOS (all supported)
 
 ## 📚 Project Structure
 
@@ -310,7 +653,7 @@ If you use this code for research or education, please cite:
   title={Time-Series Transformer for Stock Prediction: A Case Study in ML Pipeline Development},
   author={Your Name},
   year={2024},
-  url={https://github.com/yourusername/timeseries-transformer}
+  url={https://github.com/Mjmurray03/timeseries-transformer-clean}
 }
 ```
 

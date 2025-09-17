@@ -1,3 +1,4 @@
+import argparse
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -6,7 +7,7 @@ import pandas as pd
 import yfinance as yf
 
 
-def download_stock_data():
+def download_stock_data(tickers=None):
     """Download historical stock data for all required tickers."""
 
     # Create data directory if it doesn't exist
@@ -14,7 +15,10 @@ def download_stock_data():
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # List of tickers to download
-    tickers = ["AAPL", "MSFT", "AMZN", "GOOG", "META", "NVDA", "TSLA", "NFLX"]
+    if tickers is None:
+        tickers = ["AAPL", "MSFT", "AMZN", "GOOG", "META", "NVDA", "TSLA", "NFLX"]
+    elif isinstance(tickers, str):
+        tickers = [tickers]
 
     # Date range (5 years of data)
     end_date = datetime.now()
@@ -53,9 +57,14 @@ def download_stock_data():
                 failed.append(ticker)
                 continue
 
-            # Save as parquet
-            output_path = data_dir / f"{ticker}.parquet"
-            df.to_parquet(output_path)
+            # Save as both parquet and CSV for compatibility
+            parquet_path = data_dir / f"{ticker}.parquet"
+            csv_path = data_dir / f"{ticker}.csv"
+
+            df.to_parquet(parquet_path)
+            df.to_csv(csv_path)
+
+            output_path = parquet_path
 
             # Verify file was created
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
@@ -78,6 +87,36 @@ def download_stock_data():
     return len(successful) == len(tickers)
 
 
+def main():
+    """Main function with command-line argument support."""
+    parser = argparse.ArgumentParser(
+        description="Download historical stock data for backtesting and training"
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        help="Specific ticker to download (e.g., AAPL). If not specified, downloads all default tickers."
+    )
+    parser.add_argument(
+        "--tickers",
+        type=str,
+        nargs="+",
+        help="Multiple tickers to download (e.g., AAPL MSFT NVDA)"
+    )
+
+    args = parser.parse_args()
+
+    # Determine which tickers to download
+    tickers_to_download = None
+    if args.ticker:
+        tickers_to_download = [args.ticker.upper()]
+    elif args.tickers:
+        tickers_to_download = [t.upper() for t in args.tickers]
+
+    success = download_stock_data(tickers_to_download)
+    return 0 if success else 1
+
+
 if __name__ == "__main__":
     # Check if yfinance is installed
     try:
@@ -90,5 +129,4 @@ if __name__ == "__main__":
         print("[OK] yfinance installed. Please run the script again.")
         sys.exit(1)
 
-    success = download_stock_data()
-    sys.exit(0 if success else 1)
+    sys.exit(main())

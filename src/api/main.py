@@ -387,16 +387,16 @@ async def health_check():
 
 
 @app.post("/predict", response_model=PredictionResponse, 
-          summary="🎯 AI Stock Price Prediction",
+          summary="[TARGET] AI Stock Price Prediction",
           description="**🤖 What this does**: Uses a transformer neural network (like GPT, but for numbers!) to predict future stock prices based on historical data.\\n\\n" +
-                     "**📊 Input formats supported**:\\n" +
+                     "**[CHART] Input formats supported**:\\n" +
                      "- Flat list: 600 numbers `[day1_feat1, day1_feat2, ..., day60_feat10]`\\n" +
                      "- 2D array: 60 days × 10 features `[[day1_features], [day2_features], ...]`\\n\\n" +
                      "**🎓 Learning opportunity**: This is where the magic happens! The AI model processes 60 days of stock data (price, volume, etc.) and predicts the next few days.\\n\\n" +
                      "**⚡ Try it**: Click 'Try it out' below and use the example data to see a real AI prediction!")
 async def predict(request: PredictionRequest):
     """
-    🎯 Generate AI-powered stock price predictions using transformer neural networks!
+    [TARGET] Generate AI-powered stock price predictions using transformer neural networks!
     
     **Perfect for students**: This endpoint showcases how modern AI can analyze financial data patterns.
     
@@ -528,13 +528,13 @@ async def predict(request: PredictionRequest):
 
 
 @app.post("/backtest", response_model=BacktestResponse,
-          summary="📈 Historical Performance Testing", 
+          summary="[UP] Historical Performance Testing", 
           description="**📚 What is backtesting?**: Test how well our AI model would have performed in the past using real historical data.\\n\\n" +
                      "**🎓 Why it matters**: Before trusting an AI model with real money, we test it on historical data to see if it actually works!\\n\\n" +
-                     "**📊 What you get**: Returns, win rate, risk metrics, and trading statistics.\\n\\n" +
+                     "**[CHART] What you get**: Returns, win rate, risk metrics, and trading statistics.\\n\\n" +
                      "**🔬 Educational value**: Learn how quantitative finance professionals validate their trading algorithms.")
 async def run_backtest(request: BacktestRequest, background_tasks: BackgroundTasks):
-    """📈 Run historical backtesting simulation - See how the AI performed in the past!"""
+    """[UP] Run historical backtesting simulation - See how the AI performed in the past!"""
 
     try:
         # Import backtesting engine
@@ -568,7 +568,7 @@ async def run_backtest(request: BacktestRequest, background_tasks: BackgroundTas
          description="**🤖 Peek inside the AI**: Learn about the neural network architecture powering the predictions.\\n\\n" +
                     "**📖 Technical details**: Model parameters, architecture type, training info, and performance metrics.\\n\\n" +
                     "**🎓 Educational value**: Understand what makes this AI tick - transformer layers, attention mechanisms, and more!\\n\\n" +
-                    "**💡 Fun fact**: Our model has thousands of parameters that learned patterns from historical stock data.")
+                    "**[IDEA] Fun fact**: Our model has thousands of parameters that learned patterns from historical stock data.")
 async def model_info():
     """🧠 Get detailed information about the AI model architecture and capabilities"""
     return ModelInfoResponse(

@@ -3,6 +3,7 @@ Bias-Adjusted Prediction Wrapper
 Converts your biased model into a usable trading signal generator
 """
 
+import argparse
 import json
 import sys
 from datetime import datetime
@@ -23,8 +24,25 @@ class BiasAdjustedPredictor:
     Converts relative predictions into actionable signals
     """
 
-    def __init__(self, model_path="model_extended_best.pt"):
+    def __init__(self, model_path="model_extended_best.pt", ticker="AAPL"):
+        self.ticker = ticker
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Try ticker-specific model first, fall back to default
+        ticker_model_path = f"models/model_{ticker}_best.pt"
+        if Path(ticker_model_path).exists():
+            model_path = ticker_model_path
+        elif Path(model_path).exists():
+            pass  # Use provided path
+        else:
+            # Try to find any model file
+            models_dir = Path("models")
+            if models_dir.exists():
+                model_files = list(models_dir.glob("*.pt"))
+                if model_files:
+                    model_path = str(model_files[0])
+                    print(f"Using available model: {model_path}")
+
         self.load_model(model_path)
         self.calibrate_bias()
 
@@ -317,57 +335,125 @@ class BiasAdjustedPredictor:
 
 
 def main():
-    """Example usage"""
+    """Main function with command-line argument support."""
+    parser = argparse.ArgumentParser(
+        description="Generate bias-adjusted predictions for stock trading"
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default="AAPL",
+        help="Stock ticker to analyze (default: AAPL)"
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        help="Path to model file (auto-detected if not specified)"
+    )
+    parser.add_argument(
+        "--multiple",
+        action="store_true",
+        help="Analyze multiple tickers and generate portfolio"
+    )
+
+    args = parser.parse_args()
 
     print("=" * 60)
     print("BIAS-ADJUSTED PREDICTION SYSTEM")
     print("=" * 60)
 
-    # Initialize predictor
-    predictor = BiasAdjustedPredictor()
+    if args.multiple:
+        # Initialize predictor for multiple stocks
+        predictor = BiasAdjustedPredictor(model_path=args.model_path or "model_extended_best.pt")
 
-    # Test on multiple stocks
-    test_tickers = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "META", "AMZN", "JPM"]
+        # Test on multiple stocks
+        test_tickers = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "META", "AMZN", "JPM"]
 
-    # Rank stocks
-    rankings = predictor.rank_stocks(test_tickers)
+        # Rank stocks
+        rankings = predictor.rank_stocks(test_tickers)
 
-    print("\n" + "=" * 60)
-    print("STOCK RANKINGS (Best to Worst)")
-    print("=" * 60)
+        print("\n" + "=" * 60)
+        print("STOCK RANKINGS (Best to Worst)")
+        print("=" * 60)
 
-    for i, stock in enumerate(rankings, 1):
-        direction = "↑" if stock["avg_3day_return"] > 0 else "↓"
-        print(
-            f"{i}. {stock['ticker']}: "
-            f"{stock['avg_3day_return']*100:+.3f}% {direction} "
-            f"Signal: {stock['signal']} "
-            f"(Confidence: {stock['confidence']:.1%})"
+        for i, stock in enumerate(rankings, 1):
+            direction = "↑" if stock["avg_3day_return"] > 0 else "↓"
+            print(
+                f"{i}. {stock['ticker']}: "
+                f"{stock['avg_3day_return']*100:+.3f}% {direction} "
+                f"Signal: {stock['signal']} "
+                f"(Confidence: {stock['confidence']:.1%})"
+            )
+
+        # Generate portfolio
+        print("\n" + "=" * 60)
+        print("SUGGESTED PORTFOLIO WEIGHTS")
+        print("=" * 60)
+
+        weights = predictor.generate_portfolio_weights(test_tickers, top_n=3)
+
+        for ticker, weight in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+            position = "LONG" if weight > 0 else "SHORT"
+            print(f"{ticker}: {abs(weight)*100:.1f}% {position}")
+
+        # Save results
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "rankings": rankings,
+            "portfolio_weights": weights,
+        }
+
+        output_file = f"predictions/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        Path("predictions").mkdir(exist_ok=True)
+
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2)
+
+        print(f"\nResults saved to {output_file}")
+
+    else:
+        # Single ticker analysis
+        ticker = args.ticker.upper()
+        predictor = BiasAdjustedPredictor(
+            model_path=args.model_path or "model_extended_best.pt",
+            ticker=ticker
         )
 
-    # Generate portfolio
-    print("\n" + "=" * 60)
-    print("SUGGESTED PORTFOLIO WEIGHTS")
-    print("=" * 60)
+        print(f"\nAnalyzing {ticker}...")
+        prediction = predictor.predict_adjusted(ticker)
 
-    weights = predictor.generate_portfolio_weights(test_tickers, top_n=3)
+        if prediction:
+            print(f"\n{'='*60}")
+            print(f"PREDICTION FOR {ticker}")
+            print(f"{'='*60}")
+            print(f"Current Price: ${prediction['current_price']:.2f}")
+            print(f"Composite Signal: {prediction['composite_signal']}")
+            print(f"Confidence: {prediction['confidence']:.1%}")
 
-    for ticker, weight in sorted(weights.items(), key=lambda x: x[1], reverse=True):
-        position = "LONG" if weight > 0 else "SHORT"
-        print(f"{ticker}: {abs(weight)*100:.1f}% {position}")
+            print(f"\nDetailed Predictions:")
+            for i, pred in enumerate(prediction['predictions'], 1):
+                print(f"  Day {i}: {pred['adjusted_prediction']:+.3%} ({pred['signal']})")
 
-    # Save results
-    results = {
-        "timestamp": datetime.now().isoformat(),
-        "rankings": rankings,
-        "portfolio_weights": weights,
-    }
+            # Save single ticker results
+            results = {
+                "timestamp": datetime.now().isoformat(),
+                "ticker": ticker,
+                "prediction": prediction,
+            }
 
-    with open("bias_adjusted_predictions.json", "w") as f:
-        json.dump(results, f, indent=2)
+            output_file = f"predictions/prediction_{ticker}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            Path("predictions").mkdir(exist_ok=True)
 
-    print("\nResults saved to bias_adjusted_predictions.json")
+            with open(output_file, "w") as f:
+                json.dump(results, f, indent=2)
+
+            print(f"\nResults saved to {output_file}")
+        else:
+            print(f"Failed to generate prediction for {ticker}")
+            return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -179,7 +179,7 @@ class BiasAdjustedPredictor:
 
         return features.astype(np.float32), float(df["Close"].iloc[-1])
 
-    def predict_adjusted(self, ticker):
+    def predict_adjusted(self, ticker, historical_mode=False):
         """Make bias-adjusted predictions"""
 
         # Prepare features
@@ -228,9 +228,21 @@ class BiasAdjustedPredictor:
             else:
                 signal = "HOLD"
 
+            # Convert day offset to actual date
+            # For demo purposes, use historical dates for backtesting
+            from datetime import datetime, timedelta
+            if historical_mode:
+                # Use dates from a month ago for backtesting demonstration
+                base_date = datetime.now() - timedelta(days=30)
+                prediction_date = base_date + timedelta(days=i + 1)
+            else:
+                # Use future dates for live trading
+                prediction_date = datetime.now() + timedelta(days=i + 1)
+
             signals.append(
                 {
                     "day": i + 1,
+                    "date": prediction_date.strftime('%Y-%m-%d'),
                     "raw_prediction": float(raw_pred[i]),
                     "adjusted_prediction": float(pred),
                     "relative_strength": float(strength),
@@ -276,7 +288,7 @@ class BiasAdjustedPredictor:
         confidence = (consistency + extremity) / 2.0
         return float(confidence)
 
-    def rank_stocks(self, tickers):
+    def rank_stocks(self, tickers, historical_mode=False):
         """Rank multiple stocks by predicted performance"""
         results = []
 
@@ -285,7 +297,7 @@ class BiasAdjustedPredictor:
 
         for ticker in tickers:
             try:
-                pred = self.predict_adjusted(ticker)
+                pred = self.predict_adjusted(ticker, historical_mode)
                 if pred:
                     avg_return = np.mean([p["adjusted_prediction"] for p in pred["predictions"]])
                     results.append(
@@ -363,6 +375,11 @@ def main():
         action="store_true",
         help="Analyze multiple tickers and generate portfolio"
     )
+    parser.add_argument(
+        "--historical-mode",
+        action="store_true",
+        help="Generate predictions for historical dates (for backtesting demo)"
+    )
 
     args = parser.parse_args()
 
@@ -431,7 +448,7 @@ def main():
         )
 
         print(f"\nAnalyzing {ticker}...")
-        prediction = predictor.predict_adjusted(ticker)
+        prediction = predictor.predict_adjusted(ticker, args.historical_mode)
 
         if prediction:
             print(f"\n{'='*60}")

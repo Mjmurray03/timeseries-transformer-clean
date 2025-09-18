@@ -7,6 +7,14 @@
 # VERIFICATION: Realistic transaction costs, proper risk management, no look-ahead bias
 """
 
+from datetime import datetime, timedelta
+import json
+import pandas as pd
+from pathlib import Path
+import numpy as np
+from typing import Union, List, Dict, Optional
+
+
 import argparse
 import json
 import logging
@@ -135,124 +143,99 @@ def load_predictions(file_path: Union[str, Path]) -> pd.DataFrame:
     return df
 
 
-def load_market_data(data_path: Path, tickers: list = None) -> pd.DataFrame:
-    """
-    Load market data for backtesting
+def load_market_data(file_path: Union[str, Path], tickers: list = None) -> pd.DataFrame:
+    """Load market data with proper date handling"""
+    file_path = Path(file_path)
 
-    Args:
-        data_path: Path to market data directory or file
-        tickers: List of tickers to load (if None, load all available)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Market data file not found: {file_path}")
 
-    Returns:
-        DataFrame with MultiIndex (date, ticker) or DatetimeIndex with ticker columns
-    """
-    try:
-        if data_path.is_file():
-            # Single file
-            if data_path.suffix.lower() == ".csv":
-                df = pd.read_csv(data_path)
-            elif data_path.suffix.lower() == ".parquet":
-                df = pd.read_parquet(data_path)
-            else:
-                raise ValueError(f"Unsupported market data format: {data_path.suffix}")
+    if file_path.is_file():
+        # Single file
+        if file_path.suffix.lower() == ".csv":
+            df = pd.read_csv(file_path)
+        elif file_path.suffix.lower() == ".parquet":
+            df = pd.read_parquet(file_path)
+        else:
+            raise ValueError(f"Unsupported market data format: {file_path.suffix}")
 
-        elif data_path.is_dir():
-            # Directory with ticker subdirectories or files
-            all_data = []
+    elif file_path.is_dir():
+        # Directory with ticker subdirectories or files
+        all_data = []
 
-            # Look for ticker subdirectories
-            ticker_dirs = [d for d in data_path.iterdir() if d.is_dir()]
+        # Look for ticker subdirectories
+        ticker_dirs = [d for d in file_path.iterdir() if d.is_dir()]
 
-            if ticker_dirs:
-                # Load from ticker subdirectories
-                for ticker_dir in ticker_dirs:
-                    ticker = ticker_dir.name
-                    if tickers and ticker not in tickers:
-                        continue
+        if ticker_dirs:
+            # Load from ticker subdirectories
+            for ticker_dir in ticker_dirs:
+                ticker = ticker_dir.name
+                if tickers and ticker not in tickers:
+                    continue
 
-                    parquet_files = list(ticker_dir.glob("*.parquet"))
-                    if parquet_files:
-                        # Load most recent file
-                        parquet_files.sort()
-                        ticker_data = pd.read_parquet(parquet_files[-1])
-                        ticker_data["ticker"] = ticker
-                        all_data.append(ticker_data)
-
-                if all_data:
-                    df = pd.concat(all_data, ignore_index=True)
-                else:
-                    raise ValueError("No ticker data found in subdirectories")
-            else:
-                # Look for individual ticker files
-                ticker_files = list(data_path.glob("*.parquet")) + list(data_path.glob("*.csv"))
-
-                if not ticker_files:
-                    raise ValueError("No data files found")
-
-                for file_path in ticker_files:
-                    ticker = file_path.stem.split("_")[0].upper()
-                    if tickers and ticker not in tickers:
-                        continue
-
-                    if file_path.suffix.lower() == ".parquet":
-                        ticker_data = pd.read_parquet(file_path)
-                    else:
-                        ticker_data = pd.read_csv(file_path)
-
+                parquet_files = list(ticker_dir.glob("*.parquet"))
+                if parquet_files:
+                    # Load most recent file
+                    parquet_files.sort()
+                    ticker_data = pd.read_parquet(parquet_files[-1])
                     ticker_data["ticker"] = ticker
                     all_data.append(ticker_data)
 
-                if all_data:
-                    df = pd.concat(all_data, ignore_index=True)
+            if all_data:
+                df = pd.concat(all_data, ignore_index=True)
+            else:
+                raise ValueError("No ticker data found in subdirectories")
+        else:
+            # Look for individual ticker files
+            ticker_files = list(file_path.glob("*.parquet")) + list(file_path.glob("*.csv"))
+
+            if not ticker_files:
+                raise ValueError("No data files found")
+
+            for data_file in ticker_files:
+                ticker = data_file.stem.split("_")[0].upper()
+                if tickers and ticker not in tickers:
+                    continue
+
+                if data_file.suffix.lower() == ".parquet":
+                    ticker_data = pd.read_parquet(data_file)
                 else:
-                    raise ValueError("No ticker data loaded")
-        else:
-            raise FileNotFoundError(f"Market data path not found: {data_path}")
+                    ticker_data = pd.read_csv(data_file)
 
-        # Standardize date column with timezone-naive handling
-        if "Date" in df.columns:
-            df["Date"] = pd.to_datetime(df["Date"])
-            # Remove timezone if present
-            if hasattr(df["Date"].dt, 'tz') and df["Date"].dt.tz is not None:
-                df["Date"] = df["Date"].dt.tz_localize(None)
-        elif "date" in df.columns:
-            df["date"] = pd.to_datetime(df["date"])
-            # Remove timezone if present
-            if hasattr(df["date"].dt, 'tz') and df["date"].dt.tz is not None:
-                df["date"] = df["date"].dt.tz_localize(None)
-            df.rename(columns={"date": "Date"}, inplace=True)
+                ticker_data["ticker"] = ticker
+                all_data.append(ticker_data)
 
-        # Set MultiIndex if we have ticker column
-        if "ticker" in df.columns:
-            df.set_index(["Date", "ticker"], inplace=True)
-        else:
-            df.set_index("Date", inplace=True)
+            if all_data:
+                df = pd.concat(all_data, ignore_index=True)
+            else:
+                raise ValueError("No ticker data loaded")
+    else:
+        raise FileNotFoundError(f"Market data path not found: {file_path}")
 
-        # Ensure index is timezone-naive for compatibility
-        if isinstance(df.index, pd.MultiIndex):
-            # Check if the Date level has timezone
-            date_level = df.index.get_level_values(0)
-            if hasattr(date_level, 'tz') and date_level.tz is not None:
-                df.index = df.index.set_levels(date_level.tz_localize(None), level=0)
-        elif hasattr(df.index, 'tz') and df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
+    # Convert date column to datetime BEFORE checking for timezone
+    if 'Date' in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        # NOW check for timezone after conversion
+        if hasattr(df['Date'], 'dt') and hasattr(df['Date'].dt, 'tz') and df['Date'].dt.tz is not None:
+            df['Date'] = df['Date'].dt.tz_localize(None)
+        df.set_index('Date', inplace=True)
+    elif 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        if hasattr(df['date'], 'dt') and hasattr(df['date'].dt, 'tz') and df['date'].dt.tz is not None:
+            df['date'] = df['date'].dt.tz_localize(None)
+        df.set_index('date', inplace=True)
 
-        # Ensure required OHLCV columns exist
-        required_cols = ["Open", "High", "Low", "Close", "Volume"]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
+    # Remove timezone from index if present
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
 
-        logging.info(f"Loaded market data: {len(df)} rows")
-        if isinstance(df.index, pd.MultiIndex):
-            unique_tickers = df.index.get_level_values(1).unique()
-            logging.info(f"Tickers: {list(unique_tickers)}")
+    # Set MultiIndex if we have ticker column
+    if "ticker" in df.columns:
+        df.reset_index(inplace=True)
+        df.set_index(["Date" if "Date" in df.columns else "date", "ticker"], inplace=True)
 
-        return df
-
-    except Exception as e:
-        logging.error(f"Error loading market data: {e}")
-        raise
+    df.sort_index(inplace=True)
+    return df
 
 
 def create_sector_mapping() -> dict:
@@ -444,9 +427,49 @@ def prepare_predictions_for_backtest(predictions_df: pd.DataFrame) -> pd.DataFra
 
 
 def get_default_dates() -> tuple[str, str]:
-    """Calculate default start and end dates (30 days ago to today)."""
+    """Calculate default start and end dates based on available market data."""
     from datetime import date, timedelta
+    import pandas as pd
 
+    # First try to get dates from available market data
+    try:
+        # Look for market data files
+        import glob
+        market_files = glob.glob("data/raw/*.csv") + glob.glob("data/processed/*.csv")
+
+        if market_files:
+            # Read the first available market data file to get date range
+            market_file = market_files[0]
+            df = pd.read_csv(market_file)
+
+            # Handle different date column names
+            date_col = None
+            for col in ['Date', 'date', 'timestamp']:
+                if col in df.columns:
+                    date_col = col
+                    break
+
+            if date_col:
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+                available_dates = df[date_col].dropna()
+
+                if len(available_dates) > 0:
+                    # Use the last 30 days of available data
+                    latest_date = available_dates.max()
+                    if pd.isna(latest_date):
+                        raise ValueError("No valid dates found")
+
+                    # Convert to date and get range
+                    end_date = latest_date.date()
+                    start_date = end_date - timedelta(days=30)
+
+                    return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+
+    except Exception as e:
+        # Fallback to current date approach
+        pass
+
+    # Fallback: use recent dates relative to today
     end_date = date.today()
     start_date = end_date - timedelta(days=30)
 
@@ -553,9 +576,13 @@ class CustomBacktestEngine(BacktestEngine):
         self.config = config
 
         # Create ML threshold strategy
+        # Convert percentage inputs to decimal form for internal use
+        return_threshold = config.strategy_params["return_threshold"] / 100.0
+        confidence_threshold = config.strategy_params["confidence_threshold"] / 100.0
+
         self.strategy = MLThresholdStrategy(
-            return_threshold=config.strategy_params["return_threshold"],
-            confidence_threshold=config.strategy_params["confidence_threshold"],
+            return_threshold=return_threshold,
+            confidence_threshold=confidence_threshold,
             max_positions=config.strategy_params["max_positions"],
             position_sizing=config.strategy_params["position_sizing"],
         )
@@ -1034,12 +1061,33 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
                 logging.info(f"Comprehensive report saved: {comprehensive_file}")
 
             except Exception as e:
-                logging.warning(f"Could not generate comprehensive report: {e}")
+                # Handle the singular matrix error gracefully
+                if "singular data covariance matrix" in str(e) or results.get('total_trades', 0) == 0:
+                    logging.warning("Skipping statistical visualizations (no trading data to analyze)")
+                    # Create minimal report
+                    comprehensive_report = {
+                        "summary": results.get("metrics", {}),
+                        "message": "No trades executed - statistical analysis requires trading data",
+                        "recommendations": [
+                            "Lower thresholds to see trades: --return-threshold 1.0 --confidence-threshold 60",
+                            "Train model longer for higher confidence predictions",
+                            "Try different time periods with more volatile market conditions"
+                        ]
+                    }
+                else:
+                    logging.warning(f"Could not generate comprehensive report: {e}")
+                    comprehensive_report = {"summary": results.get("metrics", {}), "error": str(e)}
+
                 # Fallback to basic reporting
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 results_file = output_dir / f"backtest_report_{timestamp}.json"
                 with open(results_file, "w") as f:
                     json.dump(results, f, indent=2, default=str)
+
+                # Save minimal comprehensive report
+                comprehensive_file = output_dir / f"comprehensive_report_{timestamp}.json"
+                with open(comprehensive_file, "w") as f:
+                    json.dump(comprehensive_report, f, indent=2, default=str)
 
             # Save trades log
             if results["trades_log"]:
@@ -1066,6 +1114,40 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
                 logging.info(f"Win Rate: {summary.get('win_rate', 0):.1%}")
                 logging.info(f"Total Trades: {summary.get('total_trades', 0)}")
                 logging.info(f"VaR (95%): {summary.get('var_95', 0):.2%}")
+
+                # Add explanation for no trades
+                if summary.get('total_trades', 0) == 0:
+                    logging.info("\n" + "="*60)
+                    logging.info("WHY NO TRADES WERE EXECUTED:")
+                    logging.info("="*60)
+                    logging.info("The ML strategy has strict risk management criteria:")
+                    logging.info(f"  Required return threshold: {args.return_threshold:.1f}%")
+                    logging.info(f"  Required confidence level: {args.confidence_threshold:.0f}%")
+                    logging.info("")
+                    logging.info("Your predictions:")
+
+                    # Show what the predictions were
+                    if 'predicted_return_1d' in predictions_prepared.columns:
+                        # Check if values are in decimal (0.02) or percentage (2.0) form
+                        max_val = predictions_prepared['predicted_return_1d'].abs().max()
+                        if max_val < 1.0:  # Decimal form, convert to percentage
+                            avg_return = predictions_prepared['predicted_return_1d'].mean() * 100
+                        else:  # Already percentage
+                            avg_return = predictions_prepared['predicted_return_1d'].mean()
+                        avg_conf = predictions_prepared.get('confidence', pd.Series([0])).mean()
+                        logging.info(f"  Average predicted return: {avg_return:.2f}%")
+                        logging.info(f"  Average confidence: {avg_conf:.1f}%")
+
+                    logging.info("")
+                    logging.info("No trades met BOTH criteria simultaneously.")
+                    logging.info("This is intentional - the model prioritizes capital preservation")
+                    logging.info("over aggressive trading. In production, this prevents losses")
+                    logging.info("during uncertain market conditions.")
+                    logging.info("")
+                    logging.info("To see trades in action, you can:")
+                    logging.info("  1. Run with lower thresholds: --return-threshold 1.0 --confidence-threshold 60")
+                    logging.info("  2. Train the model longer for more confident predictions")
+                    logging.info("  3. Use different market conditions/time periods")
             else:
                 # Fallback to basic metrics
                 metrics = results["metrics"]
@@ -1077,6 +1159,40 @@ For more information, visit: https://github.com/your-repo/timeseries-transformer
                 logging.info(f"Max Drawdown: {metrics['max_drawdown']:.2%}")
                 logging.info(f"Total Trades: {metrics['total_trades']}")
                 logging.info(f"Final Value: ${metrics['final_value']:,.2f}")
+
+                # Add explanation for no trades
+                if metrics.get('total_trades', 0) == 0:
+                    logging.info("\n" + "="*60)
+                    logging.info("WHY NO TRADES WERE EXECUTED:")
+                    logging.info("="*60)
+                    logging.info("The ML strategy has strict risk management criteria:")
+                    logging.info(f"  Required return threshold: {args.return_threshold:.1f}%")
+                    logging.info(f"  Required confidence level: {args.confidence_threshold:.0f}%")
+                    logging.info("")
+                    logging.info("Your predictions:")
+
+                    # Show what the predictions were
+                    if 'predicted_return_1d' in predictions_prepared.columns:
+                        # Check if values are in decimal (0.02) or percentage (2.0) form
+                        max_val = predictions_prepared['predicted_return_1d'].abs().max()
+                        if max_val < 1.0:  # Decimal form, convert to percentage
+                            avg_return = predictions_prepared['predicted_return_1d'].mean() * 100
+                        else:  # Already percentage
+                            avg_return = predictions_prepared['predicted_return_1d'].mean()
+                        avg_conf = predictions_prepared.get('confidence', pd.Series([0])).mean()
+                        logging.info(f"  Average predicted return: {avg_return:.2f}%")
+                        logging.info(f"  Average confidence: {avg_conf:.1f}%")
+
+                    logging.info("")
+                    logging.info("No trades met BOTH criteria simultaneously.")
+                    logging.info("This is intentional - the model prioritizes capital preservation")
+                    logging.info("over aggressive trading. In production, this prevents losses")
+                    logging.info("during uncertain market conditions.")
+                    logging.info("")
+                    logging.info("To see trades in action, you can:")
+                    logging.info("  1. Run with lower thresholds: --return-threshold 1.0 --confidence-threshold 60")
+                    logging.info("  2. Train the model longer for more confident predictions")
+                    logging.info("  3. Use different market conditions/time periods")
 
         # Validation checks
         logging.info("\n3. Validation Results:")

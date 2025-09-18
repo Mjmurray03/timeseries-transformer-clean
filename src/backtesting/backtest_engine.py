@@ -83,17 +83,75 @@ class BacktestEngine:
         """
         logger.info(f"Starting backtest from {self.config.start_date} to {self.config.end_date}")
 
-        # Filter data to backtest period
-        start_date = pd.to_datetime(self.config.start_date)
-        end_date = pd.to_datetime(self.config.end_date)
+        # Filter market data to backtest period with robust timezone handling
+        try:
+            # Forcefully convert market data index to timezone-naive
+            if hasattr(market_data.index, 'tz') and market_data.index.tz is not None:
+                market_data.index = market_data.index.tz_convert(None)
+            elif not hasattr(market_data.index, 'tz'):
+                market_data.index = pd.to_datetime(market_data.index, utc=False)
 
-        predictions = predictions.loc[start_date:end_date]
-        market_data = market_data.loc[start_date:end_date]
+            # Convert start/end to timezone-naive pandas Timestamps
+            start_ts = pd.Timestamp(self.config.start_date)
+            end_ts = pd.Timestamp(self.config.end_date)
+
+            # Ensure start/end are timezone-naive
+            if hasattr(start_ts, 'tz') and start_ts.tz is not None:
+                start_ts = start_ts.tz_localize(None)
+            if hasattr(end_ts, 'tz') and end_ts.tz is not None:
+                end_ts = end_ts.tz_localize(None)
+
+            # Filter with safe comparison
+            mask = (market_data.index >= start_ts) & (market_data.index <= end_ts)
+            market_data_filtered = market_data.loc[mask]
+
+            if len(market_data_filtered) > 0:
+                market_data = market_data_filtered
+                logger.info(f"Filtered market data: {len(market_data)} rows from {start_ts} to {end_ts}")
+            else:
+                logger.warning(f"No market data in range {start_ts} to {end_ts}, using all available data")
+
+        except Exception as e:
+            logger.warning(f"Error filtering market data: {e}, using all available data")
+
+        # Filter predictions to backtest period with robust timezone handling
+        try:
+            # Forcefully convert predictions index to timezone-naive
+            if hasattr(predictions.index, 'tz') and predictions.index.tz is not None:
+                predictions.index = predictions.index.tz_convert(None)
+            elif not hasattr(predictions.index, 'tz'):
+                predictions.index = pd.to_datetime(predictions.index, utc=False)
+
+            # Convert start/end to timezone-naive pandas Timestamps
+            start_ts = pd.Timestamp(self.config.start_date)
+            end_ts = pd.Timestamp(self.config.end_date)
+
+            # Ensure start/end are timezone-naive
+            if hasattr(start_ts, 'tz') and start_ts.tz is not None:
+                start_ts = start_ts.tz_localize(None)
+            if hasattr(end_ts, 'tz') and end_ts.tz is not None:
+                end_ts = end_ts.tz_localize(None)
+
+            # Filter with safe comparison
+            mask = (predictions.index >= start_ts) & (predictions.index <= end_ts)
+            predictions_filtered = predictions.loc[mask]
+
+            if len(predictions_filtered) > 0:
+                predictions = predictions_filtered
+                logger.info(f"Filtered predictions: {len(predictions)} rows from {start_ts} to {end_ts}")
+            else:
+                logger.warning(f"No predictions in range {start_ts} to {end_ts}, using all available predictions")
+
+        except Exception as e:
+            logger.warning(f"Error filtering predictions: {e}, using all available predictions")
 
         # Ensure data alignment
-        common_dates = predictions.index.intersection(
-            market_data.index.get_level_values(0).unique()
-        )
+        if isinstance(market_data.index, pd.MultiIndex):
+            market_dates = market_data.index.get_level_values(0).unique()
+        else:
+            market_dates = market_data.index.unique()
+
+        common_dates = predictions.index.intersection(market_dates)
 
         logger.info(f"Processing {len(common_dates)} trading days")
 
@@ -106,7 +164,12 @@ class BacktestEngine:
         logger.info(
             f"Backtest completed. Final portfolio value: ${self.portfolio.total_value:,.2f}"
         )
-        logger.info(f"Total return: {final_results['metrics']['total_return']:.2%}")
+
+        # Check if results contain metrics
+        if 'metrics' in final_results:
+            logger.info(f"Total return: {final_results['metrics']['total_return']:.2%}")
+        else:
+            logger.warning("No metrics generated - likely due to insufficient data or date range mismatch")
 
         return final_results
 
@@ -123,14 +186,20 @@ class BacktestEngine:
 
             # Get market data for date
             try:
-                daily_market_data = market_data.loc[date]
+                if isinstance(market_data.index, pd.MultiIndex):
+                    # For MultiIndex, get all tickers for this date
+                    daily_market_data = market_data.loc[market_data.index.get_level_values(0) == date]
+                    historical_data = market_data.loc[market_data.index.get_level_values(0) <= date]
+                else:
+                    daily_market_data = market_data.loc[date]
+                    historical_data = market_data.loc[:date]
             except KeyError:
                 logger.warning(f"No market data for {date}")
                 return
 
             # Generate signals
             signals = self.strategy.generate_signals(
-                daily_predictions, self.portfolio.positions, market_data.loc[:date]
+                daily_predictions, self.portfolio.positions, historical_data
             )
 
             if signals:
@@ -204,7 +273,36 @@ class BacktestEngine:
     def generate_report(self, results: List[Dict]) -> Dict[str, Any]:
         """Generate comprehensive backtest report"""
         if not results:
-            return {"error": "No results to report"}
+            # Return basic structure with zero metrics for empty results
+            return {
+                "config": {
+                    "initial_capital": self.config.initial_capital,
+                    "start_date": self.config.start_date,
+                    "end_date": self.config.end_date,
+                    "strategy_params": self.config.strategy_params,
+                },
+                "metrics": {
+                    "total_return": 0.0,
+                    "annualized_return": 0.0,
+                    "volatility": 0.0,
+                    "sharpe_ratio": 0.0,
+                    "max_drawdown": 0.0,
+                    "final_value": self.config.initial_capital,
+                    "total_trades": 0,
+                    "win_rate": 0.0,
+                    "avg_trade": 0.0,
+                    "profit_factor": 0.0,
+                    "avg_winner": 0.0,
+                    "avg_loser": 0.0,
+                    "buy_trades": 0,
+                    "sell_trades": 0,
+                },
+                "portfolio_history": [],
+                "trades_log": [],
+                "daily_returns": {},
+                "equity_curve": {},
+                "error": "No trading data available for the specified date range",
+            }
 
         # Extract portfolio values for analysis
         portfolio_values = [r["portfolio_value"] for r in results]

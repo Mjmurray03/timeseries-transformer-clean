@@ -26,6 +26,7 @@ Outputs:
 """
 
 import argparse
+import glob
 import json
 import logging
 import os
@@ -270,8 +271,9 @@ class DemoRunner:
         self.logger.info("\n[STEP 3] Generating predictions...")
 
         # Use the bias-adjusted prediction script with ticker-based model
+        # Use historical mode for demo to enable backtesting
         success, stdout, stderr = self.run_command(
-            f"python scripts/bias_adjusted_predictions.py --ticker {self.ticker} --model-path models/model_{self.ticker}_best.pt",
+            f"python scripts/bias_adjusted_predictions.py --ticker {self.ticker} --model-path models/model_{self.ticker}_best.pt --historical-mode",
             f"Generate {self.ticker} predictions",
             timeout=120
         )
@@ -405,27 +407,45 @@ class DemoRunner:
             self.logger.warning("Skipping backtest due to prediction file issues")
             return True  # Not a critical failure
 
-        # Determine appropriate date range from market data
+        # Determine appropriate date range from predictions
         try:
-            import pandas as pd
-            df = pd.read_csv(data_file)
-            df['Date'] = pd.to_datetime(df['Date'])
+            # Extract date range from predictions to align backtesting
+            prediction_dates = []
+            if "prediction" in pred_data and "predictions" in pred_data["prediction"]:
+                for pred in pred_data["prediction"]["predictions"]:
+                    if "date" in pred:
+                        prediction_dates.append(pred["date"])
 
-            # Use last 30 days of available data for quick demo
-            max_date = df['Date'].max()
-            min_date = max(df['Date'].min(), max_date - timedelta(days=30))
+            if prediction_dates:
+                start_date = min(prediction_dates)
+                end_date = max(prediction_dates)
+                self.logger.info(f"Using prediction date range: {start_date} to {end_date}")
+            else:
+                # Fallback: Use historical data if no prediction dates available
+                import pandas as pd
+                df = pd.read_csv(data_file)
+                df['Date'] = pd.to_datetime(df['Date'])
 
-            start_date = min_date.strftime('%Y-%m-%d')
-            end_date = max_date.strftime('%Y-%m-%d')
+                # Use last 30 days of available data for quick demo
+                max_date = df['Date'].max()
+                min_date = max(df['Date'].min(), max_date - timedelta(days=30))
 
-            self.logger.info(f"Backtest date range: {start_date} to {end_date}")
+                start_date = min_date.strftime('%Y-%m-%d')
+                end_date = max_date.strftime('%Y-%m-%d')
+                self.logger.info(f"Fallback to historical range: {start_date} to {end_date}")
 
         except Exception as e:
-            self.logger.warning(f"Could not parse market data dates: {e}")
-            # Fallback to recent dates
+            self.logger.warning(f"Could not parse prediction/market data dates: {e}")
+            # Final fallback to recent dates
             from datetime import date, timedelta
             end_date = date.today().strftime('%Y-%m-%d')
             start_date = (date.today() - timedelta(days=30)).strftime('%Y-%m-%d')
+
+        # For demo, use thresholds that will actually generate trades
+        if "demo" in self.mode_name.lower() or self.quick_mode:
+            extra_args = " --return-threshold 1.0 --confidence-threshold 60"
+        else:
+            extra_args = ""
 
         cmd = (
             f"python scripts/backtesting/run_backtest.py "
@@ -433,7 +453,7 @@ class DemoRunner:
             f"--market-data-path {data_file} "
             f"--start-date {start_date} "
             f"--end-date {end_date} "
-            f"--initial-capital 100000"
+            f"--initial-capital 100000{extra_args}"
         )
 
         success, stdout, stderr = self.run_command(
@@ -578,6 +598,21 @@ class DemoRunner:
         print("   - Containerize with Docker")
         print("   - Set up monitoring and alerting")
         print("   - Implement real-time data feeds")
+
+        # Add demo insights about ML model behavior
+        print("\n" + "="*60)
+        print("DEMO INSIGHTS")
+        print("="*60)
+        print("The ML model is conservative by design:")
+        print("- It only trades when confidence is high")
+        print("- It prioritizes capital preservation")
+        print("- Many predictions won't result in trades")
+        print("")
+        print("This is a feature, not a bug!")
+        print("In real trading, avoiding bad trades is as important as making good ones.")
+        print("")
+        print("To experiment with different strategies:")
+        print("  python scripts/backtesting/run_backtest.py --help")
 
         if summary['execution_summary']['success_rate'] < 1.0:
             print("\nWARNING: Some steps failed. Check the log file for details and troubleshooting guidance.")

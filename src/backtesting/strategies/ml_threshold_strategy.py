@@ -54,10 +54,10 @@ class MLThresholdStrategy(Strategy):
 
     def __init__(
         self,
-        return_threshold: float = 0.02,
-        confidence_threshold: float = 0.7,
+        return_threshold: float = 0.01,
+        confidence_threshold: float = 0.65,
         max_positions: int = 5,
-        position_sizing: str = "kelly",
+        position_sizing: str = "equal_weight",
         correlation_threshold: float = 0.7,
         volatility_target: float = 0.15,
         max_position_size: float = 0.2,
@@ -70,10 +70,10 @@ class MLThresholdStrategy(Strategy):
         Initialize ML-based trading strategy
 
         Args:
-            return_threshold: Minimum expected return to enter position (2%)
-            confidence_threshold: Minimum confidence score to enter (0.7)
+            return_threshold: Minimum expected return to enter position (1%)
+            confidence_threshold: Minimum confidence score to enter (65%)
             max_positions: Maximum concurrent positions (5)
-            position_sizing: Method for position sizing ('kelly', 'equal_weight', 'volatility_scaled')
+            position_sizing: Method for position sizing ('equal_weight', 'kelly', 'volatility_scaled')
             correlation_threshold: Maximum correlation between positions (0.7)
             volatility_target: Target portfolio volatility (15%)
             max_position_size: Maximum single position size (20%)
